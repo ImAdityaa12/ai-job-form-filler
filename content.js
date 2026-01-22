@@ -11,10 +11,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function fillFormWithAI() {
     const { apiKey, resumeText } = await chrome.storage.local.get(['apiKey', 'resumeText']);
     if (!apiKey || !resumeText) throw new Error('API key or resume not found');
-    
+
     const formFields = findFormFields();
     if (formFields.length === 0) throw new Error('No form fields found on this page');
-    
+
+    // First, log all questions found
+    console.log('=== FORM FIELDS DETECTED ===');
+    console.log(`Found ${formFields.length} fields:`);
+    formFields.forEach((field, index) => {
+        console.log(`${index + 1}. "${field.label}" (${field.inputType})`);
+    });
+    console.log('=== STARTING TO FILL ===\n');
+
+    // Then fill them
     for (const field of formFields) {
         try {
             console.log(`📝 Filling field: "${field.label}" (type: ${field.inputType})`);
@@ -31,7 +40,7 @@ async function fillFormWithAI() {
 function findFormFields() {
     const fields = [];
     const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input:not([type]), textarea');
-    
+
     inputs.forEach(input => {
         if (input.offsetParent === null || input.disabled || input.readOnly) return;
         const label = getFieldLabel(input);
@@ -49,12 +58,12 @@ function findFormFields() {
 
 function getFieldLabel(element) {
     let label = null;
-    
+
     if (element.id) {
         const labelElement = document.querySelector(`label[for="${element.id}"]`);
         if (labelElement) label = labelElement.textContent.trim();
     }
-    
+
     if (!label) {
         const parentLabel = element.closest('label');
         if (parentLabel) {
@@ -64,16 +73,16 @@ function getFieldLabel(element) {
             label = clone.textContent.trim();
         }
     }
-    
+
     if (!label && element.previousElementSibling) {
         const prev = element.previousElementSibling;
         if (prev.tagName === 'LABEL') label = prev.textContent.trim();
     }
-    
+
     if (!label && element.getAttribute('aria-label')) label = element.getAttribute('aria-label').trim();
     if (!label && element.placeholder) label = element.placeholder.trim();
     if (!label && element.name) label = element.name.replace(/[_-]/g, ' ').trim();
-    
+
     if (label) {
         label = label.replace(/\*/g, '').replace(/:/g, '').replace(/\s+/g, ' ')
             .replace(/^\s+|\s+$/g, '').replace(/\(required\)/gi, '').replace(/\(optional\)/gi, '');
@@ -84,7 +93,7 @@ function getFieldLabel(element) {
 async function generateAnswer(fieldLabel, fieldType, resumeText, apiKey) {
     const lowerLabel = fieldLabel.toLowerCase();
     let fieldCategory = 'general';
-    
+
     if (lowerLabel.includes('name') && !lowerLabel.includes('company')) fieldCategory = 'name';
     else if (lowerLabel.includes('email')) fieldCategory = 'email';
     else if (lowerLabel.includes('phone') || lowerLabel.includes('mobile') || lowerLabel.includes('contact')) fieldCategory = 'phone';
@@ -95,32 +104,28 @@ async function generateAnswer(fieldLabel, fieldType, resumeText, apiKey) {
     else if (lowerLabel.includes('skill')) fieldCategory = 'skills';
     else if (lowerLabel.includes('position') || lowerLabel.includes('title') || lowerLabel.includes('role')) fieldCategory = 'position';
 
-    const prompt = `You are filling out a job application form. Extract the specific information requested from the resume.
+    const prompt = `You are filling a job application form.
 
 Resume:
 ${resumeText}
 
-Field Label: "${fieldLabel}"
-Field Category: ${fieldCategory}
+Task:
+Write a SHORT, PROFESSIONAL, and NATURAL answer for the form field titled "${fieldLabel}".
 
-INSTRUCTIONS BY CATEGORY:
-- name: Extract only the person's full name
-- email: Extract only the email address
-- phone: Extract only the phone number
-- address: Extract only the complete address (street, city, state, zip)
-- family: This asks about FAMILY BACKGROUND (parents, siblings, family details) - NOT professional background. If not in resume, say "Not specified in resume"
-- education: Extract degree, major, and institution
-- experience: Briefly describe relevant work experience
-- skills: List relevant technical/professional skills
-- position: Extract current or most recent job title
-- general: Provide the most relevant information from the resume
-
-CRITICAL RULES:
-1. Answer ONLY what the field asks for - nothing else
-2. If asking about family/personal background, DO NOT provide professional information
-3. If information is not in resume, respond with "Not specified in resume"
-4. No explanations, labels, or extra text
-5. Be concise and direct
+Rules:
+- If the field is a cover letter, motivation, or "Why should we hire you":
+  → Write 3–5 sentences in first person ("I am", "I have")
+  → Sound human and professional
+  → Mention relevant skills and experience from the resume
+  → Do NOT repeat the resume verbatim
+- If the field asks for name, email, phone, LinkedIn, or portfolio:
+  → Extract the exact value from the resume
+- If the information is not available:
+  → Respond with "N/A"
+- Do NOT use markdown
+- Do NOT add headings
+- Do NOT add greetings or sign-offs
+- Return ONLY the final answer text
 
 Answer:`;
 
