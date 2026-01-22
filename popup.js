@@ -1,16 +1,17 @@
 // Load saved data when popup opens
 document.addEventListener('DOMContentLoaded', () => {
-    chrome.storage.local.get(['apiKey', 'resumeText', 'resumeFileName'], (result) => {
+    chrome.storage.local.get(['apiKey', 'resumeText', 'resumeFileName', 'resumeFileData'], (result) => {
         if (result.apiKey) {
             document.getElementById('apiKey').value = result.apiKey;
         }
         if (result.resumeText) {
             document.getElementById('resume').value = result.resumeText;
-            // Show that resume is loaded
-            showStatus('✅ Resume loaded from storage', 'success');
         }
         if (result.resumeFileName) {
             document.getElementById('fileName').textContent = `📎 ${result.resumeFileName}`;
+        }
+        if (result.resumeFileData && result.resumeText) {
+            showStatus('✅ Resume loaded from storage', 'success');
         }
     });
 });
@@ -89,8 +90,6 @@ function readFileAsText(file) {
 document.getElementById('saveBtn').addEventListener('click', () => {
     const apiKey = document.getElementById('apiKey').value.trim();
     const resumeText = document.getElementById('resume').value.trim();
-    const resumePath = document.getElementById('resumePath').value.trim();
-    const resumeFileName = document.getElementById('fileName').textContent.replace('📎 ', '');
 
     if (!apiKey) {
         showStatus('Please enter your Gemini API key', 'error');
@@ -102,8 +101,13 @@ document.getElementById('saveBtn').addEventListener('click', () => {
         return;
     }
 
-    chrome.storage.local.set({ apiKey, resumeText, resumePath, resumeFileName }, () => {
-        showStatus('Settings saved successfully!', 'success');
+    chrome.storage.local.set({ apiKey, resumeText }, () => {
+        if (chrome.runtime.lastError) {
+            showStatus('Error saving: ' + chrome.runtime.lastError.message, 'error');
+        } else {
+            showStatus('✅ Settings saved successfully!', 'success');
+            console.log('Saved to storage:', { apiKey: '***', resumeText: resumeText.substring(0, 50) + '...' });
+        }
     });
 });
 
