@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <style>
       body {
-        width: 400px;
+        width: 450px;
         padding: 20px;
         font-family: Arial, sans-serif;
       }
@@ -31,7 +31,7 @@
         font-family: Arial, sans-serif;
       }
       textarea {
-        min-height: 150px;
+        min-height: 120px;
         resize: vertical;
       }
       button {
@@ -47,6 +47,16 @@
       }
       button:hover {
         background-color: #45a049;
+      }
+      button[type="button"] {
+        background-color: #ff9800;
+        width: auto;
+        padding: 8px 16px;
+        font-size: 13px;
+        margin-top: 0;
+      }
+      button[type="button"]:hover {
+        background-color: #f57c00;
       }
       .fill-btn {
         background-color: #2196f3;
@@ -70,6 +80,10 @@
         color: #721c24;
         display: block;
       }
+      small {
+        color: #666;
+        font-size: 11px;
+      }
     </style>
   </head>
   <body>
@@ -85,11 +99,28 @@
     </div>
 
     <div class="section">
-      <label for="resume">Your Resume Text:</label>
+      <label for="resumeFile">📄 Upload Resume PDF:</label>
+      <input
+        type="file"
+        id="resumeFile"
+        accept=".pdf,.doc,.docx"
+        style="display: none"
+      />
+      <button id="uploadBtn" type="button">Choose Resume File</button>
+      <div
+        id="fileName"
+        style="font-size: 12px; color: #666; margin-top: 8px"
+      ></div>
+      <small>This file will be uploaded to job application forms</small>
+    </div>
+
+    <div class="section">
+      <label for="resume">📝 Paste Resume Text:</label>
       <textarea
         id="resume"
-        placeholder="Paste your resume text here..."
+        placeholder="Copy and paste your resume text here..."
       ></textarea>
+      <small>AI will use this text to answer form questions</small>
     </div>
 
     <button id="saveBtn">Save Settings</button>

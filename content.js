@@ -9,34 +9,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function fillFormWithAI() {
-    const { apiKey, resumeText } = await chrome.storage.local.get(['apiKey', 'resumeText']);
+    const { apiKey, resumeText, resumeFileData, resumeFileName, resumeFileType } = await chrome.storage.local.get(['apiKey', 'resumeText', 'resumeFileData', 'resumeFileName', 'resumeFileType']);
     if (!apiKey || !resumeText) throw new Error('API key or resume not found');
 
     const formFields = findFormFields();
-    if (formFields.length === 0) throw new Error('No form fields found on this page');
+    const fileInputs = findFileInputs();
+
+    if (formFields.length === 0 && fileInputs.length === 0) {
+        throw new Error('No form fields found on this page');
+    }
 
     // First, log all questions found
     console.log('=== FORM FIELDS DETECTED ===');
-    console.log(`Found ${formFields.length} fields:`);
+    console.log(`Found ${formFields.length} text fields and ${fileInputs.length} file upload fields`);
     formFields.forEach((field, index) => {
         console.log(`${index + 1}. "${field.label}" (${field.inputType})`);
+    });
+    fileInputs.forEach((field, index) => {
+        console.log(`FILE ${index + 1}. "${field.label}"`);
     });
     console.log('=== GENERATING ALL ANSWERS IN ONE API CALL ===\n');
 
     try {
-        // Generate all answers in one API call
-        const answers = await generateAllAnswers(formFields, resumeText, apiKey);
+        // Fill file upload fields first
+        if (fileInputs.length > 0 && resumeFileData) {
+            console.log('📎 Uploading resume to file fields...');
+            for (const fileInput of fileInputs) {
+                await fillFileInput(fileInput.element, resumeFileData, resumeFileName, resumeFileType);
+                console.log(`✅ Uploaded resume to: "${fileInput.label}"`);
+            }
+        }
 
-        // Fill the fields with the answers
-        for (let i = 0; i < formFields.length; i++) {
-            const field = formFields[i];
-            const answer = answers[i];
+        // Generate all text answers in one API call
+        if (formFields.length > 0) {
+            const answers = await generateAllAnswers(formFields, resumeText, apiKey);
 
-            console.log(`📝 Filling field: "${field.label}"`);
-            console.log(`✅ Answer: ${answer}`);
+            // Fill the fields with the answers
+            for (let i = 0; i < formFields.length; i++) {
+                const field = formFields[i];
+                const answer = answers[i];
 
-            fillField(field.element, answer, field.type);
-            await sleep(200); // Small delay for visual feedback
+                console.log(`📝 Filling field: "${field.label}"`);
+                console.log(`✅ Answer: ${answer}`);
+
+                fillField(field.element, answer, field.type);
+                await sleep(200);
+            }
         }
 
         console.log('\n=== FORM FILLING COMPLETE ===');
@@ -63,6 +81,21 @@ function findFormFields() {
         }
     });
     return fields;
+}
+
+function findFileInputs() {
+    const fileFields = [];
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+
+    fileInputs.forEach(input => {
+        if (input.offsetParent === null || input.disabled) return;
+        const label = getFieldLabel(input);
+        fileFields.push({
+            element: input,
+            label: label || 'File Upload'
+        });
+    });
+    return fileFields;
 }
 
 function getFieldLabel(element) {
@@ -250,6 +283,37 @@ function fillField(element, value, type) {
     element.dispatchEvent(new Event('blur', { bubbles: true }));
     element.style.backgroundColor = '#e8f5e9';
     setTimeout(() => { element.style.backgroundColor = ''; }, 1000);
+}
+
+async function fillFileInput(element, base64Data, fileName, fileType) {
+    try {
+        // Convert base64 to blob
+        const response = await fetch(base64Data);
+        const blob = await response.blob();
+
+        // Create a File object
+        const file = new File([blob], fileName, { type: fileType });
+
+        // Create a DataTransfer object to set files
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+
+        // Set the files on the input
+        element.files = dataTransfer.files;
+
+        // Trigger change event
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // Visual feedback
+        if (element.parentElement) {
+            element.parentElement.style.backgroundColor = '#e8f5e9';
+            setTimeout(() => {
+                element.parentElement.style.backgroundColor = '';
+            }, 1000);
+        }
+    } catch (error) {
+        console.error('Error filling file input:', error);
+    }
 }
 
 function sleep(ms) {
