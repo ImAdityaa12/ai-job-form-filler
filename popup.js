@@ -8,10 +8,13 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('resume').value = result.resumeText;
         }
         if (result.resumeFileName) {
-            document.getElementById('fileName').textContent = `📎 ${result.resumeFileName}`;
+            const uploadArea = document.getElementById('uploadArea');
+            const fileNameDiv = document.getElementById('fileName');
+            fileNameDiv.innerHTML = `<span style="color: #10b981;">✓</span> ${result.resumeFileName}`;
+            uploadArea.classList.add('has-file');
         }
         if (result.resumeFileData && result.resumeText) {
-            showStatus('✅ Resume loaded from storage', 'success');
+            showStatus('✓ Resume loaded from storage', 'success');
         }
     });
 });
@@ -27,7 +30,11 @@ document.getElementById('resumeFile').addEventListener('change', async (event) =
     if (!file) return;
 
     const fileName = file.name;
-    document.getElementById('fileName').textContent = `📎 ${fileName}`;
+    const uploadArea = document.getElementById('uploadArea');
+    const fileNameDiv = document.getElementById('fileName');
+
+    fileNameDiv.innerHTML = `<span style="color: #10b981;">✓</span> ${fileName}`;
+    uploadArea.classList.add('has-file');
 
     try {
         // Store the file as base64 for later use
@@ -39,7 +46,7 @@ document.getElementById('resumeFile').addEventListener('change', async (event) =
             resumeFileName: fileName,
             resumeFileType: file.type
         }, () => {
-            showStatus(`Resume file loaded: ${fileName}`, 'success');
+            showStatus(`✓ Resume file loaded: ${fileName}`, 'success');
         });
 
         // If it's a text file, also populate the textarea
@@ -48,7 +55,7 @@ document.getElementById('resumeFile').addEventListener('change', async (event) =
             document.getElementById('resume').value = text;
         }
     } catch (error) {
-        showStatus(`Error reading file: ${error.message}`, 'error');
+        showStatus(`✗ Error reading file: ${error.message}`, 'error');
     }
 });
 
