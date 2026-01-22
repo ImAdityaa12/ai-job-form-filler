@@ -21,19 +21,28 @@ async function fillFormWithAI() {
     formFields.forEach((field, index) => {
         console.log(`${index + 1}. "${field.label}" (${field.inputType})`);
     });
-    console.log('=== STARTING TO FILL ===\n');
+    console.log('=== GENERATING ALL ANSWERS IN ONE API CALL ===\n');
 
-    // Then fill them
-    for (const field of formFields) {
-        try {
-            console.log(`📝 Filling field: "${field.label}" (type: ${field.inputType})`);
-            const answer = await generateAnswer(field.label, field.type, resumeText, apiKey);
-            console.log(`✅ Answer for "${field.label}": ${answer}`);
+    try {
+        // Generate all answers in one API call
+        const answers = await generateAllAnswers(formFields, resumeText, apiKey);
+
+        // Fill the fields with the answers
+        for (let i = 0; i < formFields.length; i++) {
+            const field = formFields[i];
+            const answer = answers[i];
+
+            console.log(`📝 Filling field: "${field.label}"`);
+            console.log(`✅ Answer: ${answer}`);
+
             fillField(field.element, answer, field.type);
-            await sleep(500);
-        } catch (error) {
-            console.error(`❌ Error filling field "${field.label}":`, error);
+            await sleep(200); // Small delay for visual feedback
         }
+
+        console.log('\n=== FORM FILLING COMPLETE ===');
+    } catch (error) {
+        console.error('❌ Error filling form:', error);
+        throw error;
     }
 }
 
@@ -90,27 +99,20 @@ function getFieldLabel(element) {
     return label;
 }
 
-async function generateAnswer(fieldLabel, fieldType, resumeText, apiKey) {
-    const lowerLabel = fieldLabel.toLowerCase();
-    let fieldCategory = 'general';
+async function generateAllAnswers(formFields, resumeText, apiKey) {
+    // Build a list of all questions
+    const fieldsList = formFields.map((field, index) => `${index + 1}. ${field.label}`).join('\n');
 
-    if (lowerLabel.includes('name') && !lowerLabel.includes('company')) fieldCategory = 'name';
-    else if (lowerLabel.includes('email')) fieldCategory = 'email';
-    else if (lowerLabel.includes('phone') || lowerLabel.includes('mobile') || lowerLabel.includes('contact')) fieldCategory = 'phone';
-    else if (lowerLabel.includes('address') || lowerLabel.includes('location') || lowerLabel.includes('city') || lowerLabel.includes('state')) fieldCategory = 'address';
-    else if (lowerLabel.includes('family') || lowerLabel.includes('father') || lowerLabel.includes('mother') || lowerLabel.includes('parent')) fieldCategory = 'family';
-    else if (lowerLabel.includes('education') || lowerLabel.includes('degree') || lowerLabel.includes('university') || lowerLabel.includes('college')) fieldCategory = 'education';
-    else if (lowerLabel.includes('experience') || lowerLabel.includes('work') || lowerLabel.includes('employment')) fieldCategory = 'experience';
-    else if (lowerLabel.includes('skill')) fieldCategory = 'skills';
-    else if (lowerLabel.includes('position') || lowerLabel.includes('title') || lowerLabel.includes('role')) fieldCategory = 'position';
-
-    const prompt = `You are filling a job application form.
+    const prompt = `You are filling a job application form. Answer ALL questions below in ONE response.
 
 Resume:
 ${resumeText}
 
+Form Fields to Fill:
+${fieldsList}
+
 Task:
-Write a SHORT, PROFESSIONAL, and NATURAL answer for the form field titled "${fieldLabel}".
+Provide answers for ALL fields above. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
 
 Rules:
 - If the field is a cover letter, motivation, or "Why should we hire you":
@@ -125,22 +127,28 @@ Rules:
 - Do NOT use markdown
 - Do NOT add headings
 - Do NOT add greetings or sign-offs
-- Return ONLY the final answer text
+- Return ONLY a JSON array with ${formFields.length} strings
 
-Answer:`;
+Example format:
+["Answer for field 1", "Answer for field 2", "Answer for field 3"]
+
+Your JSON array:`;
 
     const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
     let lastError = null;
 
     for (const model of models) {
         try {
-            console.log(`Trying model: ${model} for field: ${fieldLabel}`);
+            console.log(`Trying model: ${model}`);
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
+                    generationConfig: {
+                        temperature: 0.7,
+                        maxOutputTokens: 2048 // Increased for multiple answers
+                    }
                 })
             });
 
@@ -180,9 +188,49 @@ Answer:`;
                 continue;
             }
 
-            const answer = data.candidates[0].content.parts[0].text.trim();
-            console.log(`✓ Success with model ${model}:`, answer);
-            return answer;
+            const answerText = data.candidates[0].content.parts[0].text.trim();
+            console.log(`✓ Success with model ${model}`);
+            console.log('Raw response:', answerText);
+
+            // Parse the JSON array from the response
+            try {
+                // Try to extract JSON array from the response
+                const jsonMatch = answerText.match(/\[[\s\S]*\]/);
+                if (!jsonMatch) {
+                    throw new Error('No JSON array found in response');
+                }
+
+                const answers = JSON.parse(jsonMatch[0]);
+
+                if (!Array.isArray(answers)) {
+                    throw new Error('Response is not an array');
+                }
+
+                if (answers.length !== formFields.length) {
+                    console.warn(`Expected ${formFields.length} answers, got ${answers.length}. Padding with N/A...`);
+                    // Pad with N/A if needed
+                    while (answers.length < formFields.length) {
+                        answers.push('N/A');
+                    }
+                }
+
+                return answers;
+            } catch (parseError) {
+                console.error('Failed to parse JSON response:', parseError);
+                console.log('Attempting to split by lines as fallback...');
+
+                // Fallback: split by lines and clean up
+                const lines = answerText.split('\n').filter(line => line.trim() && !line.trim().startsWith('[') && !line.trim().startsWith(']'));
+                const answers = lines.map(line => line.replace(/^["'\d\.\-\s]+/, '').replace(/["',]+$/, '').trim());
+
+                if (answers.length < formFields.length) {
+                    while (answers.length < formFields.length) {
+                        answers.push('N/A');
+                    }
+                }
+
+                return answers.slice(0, formFields.length);
+            }
 
         } catch (error) {
             console.error(`Error with model ${model}:`, error);
