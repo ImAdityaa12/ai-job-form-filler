@@ -3,99 +3,362 @@
   <head>
     <meta charset="UTF-8" />
     <style>
-      body {
-        width: 400px;
-        padding: 20px;
-        font-family: Arial, sans-serif;
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       }
-      h2 {
-        margin-top: 0;
+
+      body {
+        width: 420px;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: #333;
       }
+
+      .container {
+        background: white;
+        border-radius: 0;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 24px 20px;
+        text-align: center;
+        color: white;
+      }
+
+      .header h2 {
+        font-size: 22px;
+        font-weight: 600;
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .header p {
+        font-size: 13px;
+        opacity: 0.9;
+        font-weight: 400;
+      }
+
+      .content {
+        padding: 24px 20px;
+      }
+
       .section {
         margin-bottom: 20px;
       }
+
       label {
         display: block;
-        margin-bottom: 5px;
-        font-weight: bold;
-        color: #555;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #374151;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
       }
-      input,
+
+      .icon {
+        font-size: 16px;
+      }
+
+      input[type="password"],
       textarea {
         width: 100%;
-        padding: 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        box-sizing: border-box;
-        font-family: Arial, sans-serif;
+        padding: 12px;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        font-family: inherit;
+        font-size: 13px;
+        transition: all 0.2s;
+        background: #f9fafb;
       }
+
+      input[type="password"]:focus,
+      textarea:focus {
+        outline: none;
+        border-color: #667eea;
+        background: white;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
+
       textarea {
-        min-height: 150px;
+        min-height: 100px;
         resize: vertical;
+        line-height: 1.5;
       }
-      button {
-        width: 100%;
-        padding: 10px;
-        background-color: #4caf50;
-        color: white;
-        border: none;
-        border-radius: 4px;
+
+      .file-upload-area {
+        border: 2px dashed #d1d5db;
+        border-radius: 8px;
+        padding: 16px;
+        text-align: center;
+        background: #f9fafb;
+        transition: all 0.2s;
         cursor: pointer;
-        font-size: 14px;
-        margin-top: 10px;
       }
-      button:hover {
-        background-color: #45a049;
+
+      .file-upload-area:hover {
+        border-color: #667eea;
+        background: #f3f4f6;
       }
-      .fill-btn {
-        background-color: #2196f3;
+
+      .file-upload-area.has-file {
+        border-color: #10b981;
+        background: #ecfdf5;
       }
-      .fill-btn:hover {
-        background-color: #0b7dda;
-      }
-      .status {
-        margin-top: 10px;
-        padding: 10px;
-        border-radius: 4px;
+
+      #resumeFile {
         display: none;
       }
-      .status.success {
-        background-color: #d4edda;
-        color: #155724;
-        display: block;
+
+      .upload-btn {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
       }
-      .status.error {
-        background-color: #f8d7da;
-        color: #721c24;
+
+      .upload-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+
+      #fileName {
+        margin-top: 12px;
+        font-size: 12px;
+        color: #10b981;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+
+      small {
         display: block;
+        margin-top: 6px;
+        color: #6b7280;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .button-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 24px;
+      }
+
+      button {
+        width: 100%;
+        padding: 14px;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      #saveBtn {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+      }
+
+      #saveBtn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      }
+
+      #fillBtn {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+      }
+
+      #fillBtn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      .status {
+        margin-top: 16px;
+        padding: 12px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        display: none;
+        animation: slideIn 0.3s ease;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .status.success {
+        background: #ecfdf5;
+        color: #065f46;
+        border: 1px solid #10b981;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .status.error {
+        background: #fef2f2;
+        color: #991b1b;
+        border: 1px solid #ef4444;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .divider {
+        height: 1px;
+        background: linear-gradient(
+          to right,
+          transparent,
+          #e5e7eb,
+          transparent
+        );
+        margin: 20px 0;
+      }
+
+      .info-box {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 12px;
+        color: #1e40af;
+        line-height: 1.5;
+        margin-top: 16px;
+      }
+
+      .info-box strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #1e3a8a;
       }
     </style>
   </head>
   <body>
-    <h2>AI Job Form Filler</h2>
+    <div class="container">
+      <div class="header">
+        <h2>
+          <span>🤖</span>
+          AI Job Form Filler
+        </h2>
+        <p>Auto-fill applications with AI</p>
+      </div>
 
-    <div class="section">
-      <label for="apiKey">Gemini API Key:</label>
-      <input
-        type="password"
-        id="apiKey"
-        placeholder="Enter your Gemini API key"
-      />
+      <div class="content">
+        <div class="section">
+          <label>
+            <span class="icon">🔑</span>
+            Gemini API Key
+          </label>
+          <input
+            type="password"
+            id="apiKey"
+            placeholder="Enter your Gemini API key"
+          />
+          <small
+            >Get your free API key from
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              style="color: #667eea"
+              >Google AI Studio</a
+            ></small
+          >
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="section">
+          <label>
+            <span class="icon">📄</span>
+            Upload Resume PDF
+          </label>
+          <div class="file-upload-area" id="uploadArea">
+            <input type="file" id="resumeFile" accept=".pdf,.doc,.docx" />
+            <button class="upload-btn" id="uploadBtn" type="button">
+              <span>📎</span>
+              Choose File
+            </button>
+            <div id="fileName"></div>
+          </div>
+          <small>This file will be uploaded to job application forms</small>
+        </div>
+
+        <div class="section">
+          <label>
+            <span class="icon">📝</span>
+            Resume Text
+          </label>
+          <textarea
+            id="resume"
+            placeholder="Paste your resume text here for AI to generate answers..."
+          ></textarea>
+          <small
+            >AI uses this text to answer form questions intelligently</small
+          >
+        </div>
+
+        <div class="button-group">
+          <button id="saveBtn">
+            <span>💾</span>
+            Save Settings
+          </button>
+          <button id="fillBtn">
+            <span>✨</span>
+            Fill Form Automatically
+          </button>
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div class="info-box">
+          <strong>💡 How to use:</strong>
+          1. Enter API key & upload resume<br />
+          2. Click "Save Settings"<br />
+          3. Go to any job form & click "Fill Form Automatically"
+        </div>
+      </div>
     </div>
-
-    <div class="section">
-      <label for="resume">Your Resume Text:</label>
-      <textarea
-        id="resume"
-        placeholder="Paste your resume text here..."
-      ></textarea>
-    </div>
-
-    <button id="saveBtn">Save Settings</button>
-    <button id="fillBtn" class="fill-btn">Fill Form Automatically</button>
-
-    <div id="status" class="status"></div>
 
     <script src="popup.js"></script>
   </body>
