@@ -98,22 +98,13 @@ document.getElementById('saveBtn').addEventListener('click', () => {
     const apiKey = document.getElementById('apiKey').value.trim();
     const resumeText = document.getElementById('resume').value.trim();
 
-    if (!apiKey) {
-        showStatus('Please enter your Gemini API key', 'error');
-        return;
-    }
-
-    if (!resumeText) {
-        showStatus('Please paste your resume text', 'error');
-        return;
-    }
-
+    // Save whatever is entered, no validation
     chrome.storage.local.set({ apiKey, resumeText }, () => {
         if (chrome.runtime.lastError) {
-            showStatus('Error saving: ' + chrome.runtime.lastError.message, 'error');
+            showStatus('✗ Error saving: ' + chrome.runtime.lastError.message, 'error');
         } else {
-            showStatus('✅ Settings saved successfully!', 'success');
-            console.log('Saved to storage:', { apiKey: '***', resumeText: resumeText.substring(0, 50) + '...' });
+            showStatus('✓ Settings saved successfully!', 'success');
+            console.log('Saved to storage');
         }
     });
 });
