@@ -202,6 +202,11 @@
         box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
       }
 
+      #clearBtn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+      }
+
       button:active {
         transform: translateY(0);
       }
@@ -485,15 +490,15 @@
         <div class="section">
           <label>
             <span class="icon">📝</span>
-            Extracted Resume Text
+            Resume Text
           </label>
           <textarea
             id="resume"
-            placeholder="Resume text will appear here after uploading PDF..."
-            readonly
-            style="background: #f3f4f6; cursor: not-allowed"
+            placeholder="Paste your resume text here OR upload a PDF above for automatic extraction..."
           ></textarea>
-          <small>Automatically extracted from your resume file</small>
+          <small
+            >You can paste text directly or let AI extract it from PDF</small
+          >
         </div>
 
         <div class="section">
@@ -519,6 +524,16 @@
           <button id="fillBtn">
             <span>✨</span>
             Fill Form Automatically
+          </button>
+          <button
+            id="clearBtn"
+            style="
+              background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+              box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+            "
+          >
+            <span>🗑️</span>
+            Clear All Data
           </button>
         </div>
 

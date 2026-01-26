@@ -66,7 +66,7 @@ async function fillFormWithAI() {
 
 function findFormFields() {
     const fields = [];
-    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input:not([type]), textarea');
+    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input:not([type]), textarea, select');
 
     inputs.forEach(input => {
         if (input.offsetParent === null || input.disabled || input.readOnly) return;
@@ -75,7 +75,7 @@ function findFormFields() {
             fields.push({
                 element: input,
                 label: label,
-                type: input.tagName.toLowerCase() === 'textarea' ? 'textarea' : 'input',
+                type: input.tagName.toLowerCase(),
                 inputType: input.type || 'text'
             });
         }
@@ -136,7 +136,7 @@ async function generateAllAnswers(formFields, resumeText, apiKey) {
     // Build a list of all questions
     const fieldsList = formFields.map((field, index) => `${index + 1}. ${field.label}`).join('\n');
 
-    const prompt = `You are an experienced software engineer filling a job application form. Answer ALL questions below professionally based on the resume provided.
+    const prompt = `You are an experienced software engineer filling a job application form. Write answers that sound natural, conversational, and human - NOT like AI-generated text.
 
 Resume:
 ${resumeText}
@@ -145,33 +145,60 @@ Form Fields to Fill:
 ${fieldsList}
 
 Task:
-Provide thoughtful, professional answers for ALL ${formFields.length} fields. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
+Provide thoughtful, HUMAN-SOUNDING answers for ALL ${formFields.length} fields. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
 
-IMPORTANT RULES:
-1. For TECHNICAL QUESTIONS (how do you approach X, describe your experience with Y, etc.):
-   → Write 3-5 sentences based on skills/experience from the resume
-   → Use first person ("I", "In my experience", "I approach")
-   → Be specific and professional
-   → Reference technologies/frameworks from the resume when relevant
-   → NEVER say "N/A" for technical questions - always provide a thoughtful answer
+CRITICAL: WRITE LIKE A REAL PERSON, NOT AN AI:
+- Use casual, conversational language
+- Include personal touches ("I've found that...", "In my experience...", "One thing I learned...")
+- Vary sentence structure (mix short and long sentences)
+- Use contractions (I've, I'd, it's, that's)
+- Be specific with examples, not generic
+- Show personality while staying professional
+- Avoid corporate jargon and buzzwords
+- Don't sound overly formal or robotic
 
-2. For SIMPLE FIELDS (name, email, phone, LinkedIn, portfolio):
+ANSWER GUIDELINES:
+
+1. For TECHNICAL QUESTIONS (how do you approach X, describe your experience with Y):
+   → Write 3-5 sentences in a conversational tone
+   → Start with phrases like "I usually...", "I've found...", "My approach is..."
+   → Reference specific technologies/projects from the resume
+   → Share a brief example or insight
+   → NEVER say "N/A" - always provide a thoughtful answer
+   → Sound like you're explaining to a colleague, not writing a textbook
+
+2. For SIMPLE FIELDS (name, email, phone, LinkedIn):
    → Extract the exact value from the resume
-   → If not in resume, respond with "N/A"
+   → If not in resume, return empty string ""
 
-3. For MOTIVATION/COVER LETTER questions:
-   → Write 3-5 sentences explaining why you're a good fit
-   → Reference relevant experience from resume
-   → Sound enthusiastic but professional
+3. For MOTIVATION/WHY questions:
+   → Write 3-5 sentences explaining genuine interest
+   → Be enthusiastic but authentic
+   → Reference specific aspects of the role/company if mentioned
+   → Show personality
 
-4. FORMATTING:
-   → Do NOT use markdown, bullet points, or special formatting
-   → Do NOT add headings or labels
-   → Write in paragraph form
-   → Keep answers concise but meaningful (50-150 words for technical questions)
+4. For SELECT/DROPDOWN fields (usually single word answers like "Yes", "No", country names, etc.):
+   → Provide a simple, direct answer that would match a dropdown option
+   → Examples: "Yes", "No", "India", "Bachelor's", "5-10 years", etc.
+   → If not applicable, return empty string ""
 
-Example format:
-["Answer for field 1", "Answer for field 2", "Answer for field 3"]
+5. If information is NOT AVAILABLE or NOT APPLICABLE:
+   → Return empty string ""
+   → DO NOT write "N/A" or "Not applicable"
+   → Just leave it blank with ""
+
+6. FORMATTING:
+   → No markdown, bullet points, or special formatting
+   → No headings or labels
+   → Write in natural paragraph form
+   → Keep answers 50-150 words for technical questions
+   → Sound conversational, not formal
+
+Example of GOOD (human) answer:
+"I usually start by setting up a clear folder structure based on features rather than file types. In my last project, we used a modular architecture where each feature had its own components, hooks, and tests. This made it way easier to scale as the team grew. We also relied heavily on TypeScript and ESLint to catch issues early."
+
+Example of BAD (robotic) answer:
+"I utilize industry-standard best practices to implement scalable architecture patterns. My approach involves leveraging modular design principles and adhering to established conventions."
 
 Your JSON array:`;
 
@@ -248,10 +275,10 @@ Your JSON array:`;
                 }
 
                 if (answers.length !== formFields.length) {
-                    console.warn(`Expected ${formFields.length} answers, got ${answers.length}. Padding with N/A...`);
-                    // Pad with N/A if needed
+                    console.warn(`Expected ${formFields.length} answers, got ${answers.length}. Padding with empty strings...`);
+                    // Pad with empty strings if needed
                     while (answers.length < formFields.length) {
-                        answers.push('N/A');
+                        answers.push('');
                     }
                 }
 
@@ -266,7 +293,7 @@ Your JSON array:`;
 
                 if (answers.length < formFields.length) {
                     while (answers.length < formFields.length) {
-                        answers.push('N/A');
+                        answers.push('');
                     }
                 }
 
@@ -285,10 +312,42 @@ Your JSON array:`;
 }
 
 function fillField(element, value, type) {
-    element.value = value;
+    // Skip if value is empty
+    if (!value || value.trim() === '') {
+        console.log(`Skipping empty value for field`);
+        return;
+    }
+
+    if (type === 'select') {
+        // For select/dropdown fields
+        const select = element;
+        let matched = false;
+
+        // Try to find matching option (case-insensitive)
+        for (let option of select.options) {
+            if (option.text.toLowerCase().includes(value.toLowerCase()) ||
+                option.value.toLowerCase().includes(value.toLowerCase()) ||
+                value.toLowerCase().includes(option.text.toLowerCase())) {
+                select.value = option.value;
+                matched = true;
+                break;
+            }
+        }
+
+        if (!matched) {
+            console.log(`No matching option found for: "${value}"`);
+        }
+    } else {
+        // For text inputs and textareas
+        element.value = value;
+    }
+
+    // Trigger events
     element.dispatchEvent(new Event('input', { bubbles: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     element.dispatchEvent(new Event('blur', { bubbles: true }));
+
+    // Visual feedback
     element.style.backgroundColor = '#e8f5e9';
     setTimeout(() => { element.style.backgroundColor = ''; }, 1000);
 }

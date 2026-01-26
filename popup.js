@@ -4,18 +4,29 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result.apiKey) {
             document.getElementById('apiKey').value = result.apiKey;
         }
+
+        // Load resume text (without additional info for display)
         if (result.resumeText) {
-            document.getElementById('resume').value = result.resumeText;
+            // If there's additional info, extract just the resume part
+            let displayText = result.resumeText;
+            if (result.additionalInfo && result.resumeText.includes('Additional Information:')) {
+                // Extract just the resume part before "Additional Information:"
+                displayText = result.resumeText.split('\n\nAdditional Information:')[0];
+            }
+            document.getElementById('resume').value = displayText;
         }
+
         if (result.additionalInfo) {
             document.getElementById('additionalInfo').value = result.additionalInfo;
         }
+
         if (result.resumeFileName) {
             const uploadArea = document.getElementById('uploadArea');
             const fileNameDiv = document.getElementById('fileName');
             fileNameDiv.innerHTML = `<span style="color: #10b981;">✓</span> ${result.resumeFileName}`;
             uploadArea.classList.add('has-file');
         }
+
         if (result.resumeFileData && result.resumeText) {
             showStatus('✓ Resume loaded from storage', 'success');
         }
@@ -46,24 +57,63 @@ document.getElementById('resumeFile').addEventListener('change', async (event) =
         // Extract text based on file type
         let extractedText = '';
         if (file.type === 'application/pdf') {
-            showStatus('📄 Extracting text from PDF using AI...', 'success');
+            // Check if user wants to extract or just upload
+            const currentText = document.getElementById('resume').value.trim();
 
-            // Get API key
-            const result = await chrome.storage.local.get(['apiKey']);
-            if (!result.apiKey) {
-                showStatus('⚠️ Please enter your API key first to extract PDF text', 'error');
-                return;
+            if (currentText) {
+                // User already has text, just store the PDF for file uploads
+                showStatus('✓ PDF stored for file uploads. Using your existing resume text.', 'success');
+            } else {
+                // Try to extract text
+                showStatus('📄 Extracting text from PDF using AI...', 'success');
+
+                // Get API key
+                const result = await chrome.storage.local.get(['apiKey']);
+                if (!result.apiKey) {
+                    showStatus('⚠️ No API key found. Please paste your resume text manually or add API key to extract from PDF.', 'error');
+                    fileNameDiv.innerHTML = `<span style="color: #f59e0b;">⚠️</span> ${fileName} (paste text manually)`;
+
+                    // Save file but don't extract
+                    chrome.storage.local.set({
+                        resumeFileData: base64File,
+                        resumeFileName: fileName,
+                        resumeFileType: file.type
+                    });
+                    return;
+                }
+
+                try {
+                    extractedText = await extractTextFromPDFWithAI(base64File, result.apiKey);
+                    document.getElementById('resume').value = extractedText;
+                    showStatus('✓ PDF text extracted successfully!', 'success');
+                } catch (pdfError) {
+                    console.error('PDF extraction failed:', pdfError);
+
+                    if (pdfError.message.includes('quota')) {
+                        showStatus(`⚠️ API quota exceeded. PDF saved for file uploads. Please paste your resume text manually below.`, 'error');
+                    } else {
+                        showStatus(`⚠️ ${pdfError.message}. PDF saved for file uploads. Please paste text manually.`, 'error');
+                    }
+
+                    fileNameDiv.innerHTML = `<span style="color: #f59e0b;">⚠️</span> ${fileName} (paste text manually)`;
+
+                    // Save file even if extraction failed
+                    chrome.storage.local.set({
+                        resumeFileData: base64File,
+                        resumeFileName: fileName,
+                        resumeFileType: file.type
+                    });
+                    return;
+                }
             }
-
-            extractedText = await extractTextFromPDFWithAI(base64File, result.apiKey);
-            document.getElementById('resume').value = extractedText;
-            showStatus('✓ PDF text extracted successfully!', 'success');
         } else if (file.type === 'text/plain') {
             extractedText = await readFileAsText(file);
             document.getElementById('resume').value = extractedText;
             showStatus('✓ Text file loaded!', 'success');
         } else {
             showStatus('⚠️ Please upload PDF or TXT file. For DOC/DOCX, copy and paste the text.', 'error');
+            fileNameDiv.innerHTML = '';
+            uploadArea.classList.remove('has-file');
             return;
         }
 
@@ -72,7 +122,7 @@ document.getElementById('resumeFile').addEventListener('change', async (event) =
             resumeFileData: base64File,
             resumeFileName: fileName,
             resumeFileType: file.type,
-            resumeText: extractedText
+            resumeText: extractedText || document.getElementById('resume').value
         }, () => {
             fileNameDiv.innerHTML = `<span style="color: #10b981;">✓</span> ${fileName}`;
         });
@@ -96,44 +146,107 @@ function fileToBase64(file) {
 
 // Function to extract text from PDF using Gemini AI
 async function extractTextFromPDFWithAI(base64Data, apiKey) {
-    try {
-        // Remove the data URL prefix to get just the base64 data
-        const base64Content = base64Data.split(',')[1];
+    // Remove the data URL prefix to get just the base64 data
+    const base64Content = base64Data.split(',')[1];
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [
-                        {
-                            text: "Extract all text from this PDF resume. Return ONLY the extracted text, no explanations or formatting."
-                        },
-                        {
-                            inline_data: {
-                                mime_type: "application/pdf",
-                                data: base64Content
+    console.log('Extracting PDF text with Gemini...');
+
+    // Try multiple models in order
+    const models = [
+        'gemini-1.5-flash',
+        'gemini-1.5-pro',
+        'gemini-2.0-flash-exp'
+    ];
+
+    let lastError = null;
+
+    for (const model of models) {
+        try {
+            console.log(`Trying PDF extraction with model: ${model}`);
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            {
+                                text: "Extract all text content from this PDF document. Return ONLY the raw text content, no explanations, no formatting, no markdown. Include all personal information, contact details, work experience, education, and skills."
+                            },
+                            {
+                                inline_data: {
+                                    mime_type: "application/pdf",
+                                    data: base64Content
+                                }
                             }
-                        }
-                    ]
-                }]
-            })
-        });
+                        ]
+                    }],
+                    generationConfig: {
+                        temperature: 0.1,
+                        maxOutputTokens: 8192
+                    }
+                })
+            });
 
-        if (!response.ok) {
-            throw new Error('Failed to extract PDF text');
+            console.log(`Model ${model} - Response status:`, response.status);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                let errorData;
+                try {
+                    errorData = JSON.parse(errorText);
+                } catch (e) {
+                    lastError = new Error(`API Error (${response.status}): ${errorText}`);
+                    console.log(`Model ${model} failed, trying next...`);
+                    continue;
+                }
+
+                if (response.status === 404) {
+                    console.log(`Model ${model} not found, trying next...`);
+                    lastError = new Error(`Model ${model} not available`);
+                    continue;
+                }
+
+                if (response.status === 429) {
+                    throw new Error('API quota exceeded. Please wait 10-15 minutes or get a new API key.');
+                }
+
+                lastError = new Error(errorData.error?.message || 'API request failed');
+                console.log(`Model ${model} error:`, lastError.message);
+                continue;
+            }
+
+            const data = await response.json();
+            console.log(`✓ Success with model ${model}`);
+
+            if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+                lastError = new Error('No text extracted from PDF. The PDF might be image-based or corrupted.');
+                console.log(`Model ${model} returned no content, trying next...`);
+                continue;
+            }
+
+            const extractedText = data.candidates[0].content.parts[0].text.trim();
+
+            if (!extractedText || extractedText.length < 10) {
+                lastError = new Error('Extracted text is too short. Please ensure the PDF contains readable text.');
+                console.log(`Model ${model} extracted insufficient text, trying next...`);
+                continue;
+            }
+
+            console.log('✓ PDF text extracted successfully!');
+            return extractedText;
+
+        } catch (error) {
+            console.error(`Error with model ${model}:`, error);
+            lastError = error;
+            if (error.message.includes('quota exceeded')) throw error;
+            continue;
         }
-
-        const data = await response.json();
-        if (!data.candidates || !data.candidates[0]) {
-            throw new Error('No text extracted from PDF');
-        }
-
-        return data.candidates[0].content.parts[0].text.trim();
-    } catch (error) {
-        console.error('PDF extraction error:', error);
-        throw new Error('Failed to extract PDF text. Please copy and paste the text manually.');
     }
+
+    // All models failed
+    console.error('All PDF extraction models failed:', lastError);
+    throw new Error(`PDF extraction failed with all models. ${lastError?.message || 'Unknown error'}. Please copy and paste your resume text manually.`);
 }
 
 // Function to read file as text
@@ -166,20 +279,60 @@ document.getElementById('saveBtn').addEventListener('click', () => {
     const resumeText = document.getElementById('resume').value.trim();
     const additionalInfo = document.getElementById('additionalInfo').value.trim();
 
-    // Combine resume text with additional info
+    // Combine resume text with additional info for AI use
     const fullResumeText = additionalInfo
         ? `${resumeText}\n\nAdditional Information:\n${additionalInfo}`
         : resumeText;
 
-    // Save whatever is entered, no validation
-    chrome.storage.local.set({ apiKey, resumeText: fullResumeText, additionalInfo }, () => {
-        if (chrome.runtime.lastError) {
-            showStatus('✗ Error saving: ' + chrome.runtime.lastError.message, 'error');
-        } else {
-            showStatus('✓ Settings saved successfully!', 'success');
-            console.log('Saved to storage');
+    // Get existing file data to preserve it
+    chrome.storage.local.get(['resumeFileData', 'resumeFileName', 'resumeFileType'], (result) => {
+        // Save all data including file info
+        const dataToSave = {
+            apiKey,
+            resumeText: fullResumeText,
+            additionalInfo
+        };
+
+        // Preserve file data if it exists
+        if (result.resumeFileData) {
+            dataToSave.resumeFileData = result.resumeFileData;
+            dataToSave.resumeFileName = result.resumeFileName;
+            dataToSave.resumeFileType = result.resumeFileType;
         }
+
+        chrome.storage.local.set(dataToSave, () => {
+            if (chrome.runtime.lastError) {
+                showStatus('✗ Error saving: ' + chrome.runtime.lastError.message, 'error');
+            } else {
+                showStatus('✓ Settings saved successfully!', 'success');
+                console.log('Saved to storage:', dataToSave);
+            }
+        });
     });
+});
+
+// Clear all data button
+document.getElementById('clearBtn').addEventListener('click', () => {
+    if (confirm('Are you sure you want to clear all saved data? This will delete your API key, resume, and all settings.')) {
+        chrome.storage.local.clear(() => {
+            // Clear all input fields
+            document.getElementById('apiKey').value = '';
+            document.getElementById('resume').value = '';
+            document.getElementById('additionalInfo').value = '';
+
+            // Clear file upload display
+            const uploadArea = document.getElementById('uploadArea');
+            const fileNameDiv = document.getElementById('fileName');
+            fileNameDiv.innerHTML = '';
+            uploadArea.classList.remove('has-file');
+
+            // Reset file input
+            document.getElementById('resumeFile').value = '';
+
+            showStatus('✓ All data cleared successfully!', 'success');
+            console.log('Storage cleared');
+        });
+    }
 });
 
 // Fill form automatically
