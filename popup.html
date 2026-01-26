@@ -272,6 +272,164 @@
         margin-bottom: 4px;
         color: #1e3a8a;
       }
+
+      /* Loader Styles */
+      .loader-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        animation: fadeIn 0.3s ease;
+      }
+
+      .loader-overlay.active {
+        display: flex;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .loader-content {
+        background: white;
+        border-radius: 16px;
+        padding: 32px;
+        width: 320px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        animation: slideUp 0.3s ease;
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .loader-header {
+        text-align: center;
+        margin-bottom: 24px;
+      }
+
+      .loader-header h3 {
+        font-size: 18px;
+        color: #1f2937;
+        margin-bottom: 8px;
+      }
+
+      .loader-spinner {
+        width: 48px;
+        height: 48px;
+        border: 4px solid #e5e7eb;
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 16px;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .loader-steps {
+        margin-top: 20px;
+      }
+
+      .loader-step {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        margin-bottom: 8px;
+        border-radius: 8px;
+        background: #f9fafb;
+        transition: all 0.3s ease;
+      }
+
+      .loader-step.active {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+      }
+
+      .loader-step.completed {
+        background: #ecfdf5;
+        border: 1px solid #10b981;
+      }
+
+      .step-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        flex-shrink: 0;
+        background: #e5e7eb;
+        color: #6b7280;
+      }
+
+      .loader-step.active .step-icon {
+        background: #3b82f6;
+        color: white;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.1);
+        }
+      }
+
+      .loader-step.completed .step-icon {
+        background: #10b981;
+        color: white;
+      }
+
+      .step-text {
+        flex: 1;
+      }
+
+      .step-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 2px;
+      }
+
+      .step-description {
+        font-size: 11px;
+        color: #6b7280;
+      }
+
+      .loader-step.active .step-title {
+        color: #1e40af;
+      }
+
+      .loader-step.completed .step-title {
+        color: #065f46;
+      }
     </style>
   </head>
   <body>
@@ -356,6 +514,46 @@
           1. Enter API key & upload resume<br />
           2. Click "Save Settings"<br />
           3. Go to any job form & click "Fill Form Automatically"
+        </div>
+      </div>
+    </div>
+
+    <!-- Loader Overlay -->
+    <div class="loader-overlay" id="loaderOverlay">
+      <div class="loader-content">
+        <div class="loader-header">
+          <div class="loader-spinner"></div>
+          <h3>Filling Form...</h3>
+        </div>
+        <div class="loader-steps">
+          <div class="loader-step" id="step1">
+            <div class="step-icon">🔍</div>
+            <div class="step-text">
+              <div class="step-title">Detecting Fields</div>
+              <div class="step-description">Finding form fields...</div>
+            </div>
+          </div>
+          <div class="loader-step" id="step2">
+            <div class="step-icon">🤖</div>
+            <div class="step-text">
+              <div class="step-title">Generating Answers</div>
+              <div class="step-description">AI is creating responses...</div>
+            </div>
+          </div>
+          <div class="loader-step" id="step3">
+            <div class="step-icon">📝</div>
+            <div class="step-text">
+              <div class="step-title">Filling Fields</div>
+              <div class="step-description">Populating form data...</div>
+            </div>
+          </div>
+          <div class="loader-step" id="step4">
+            <div class="step-icon">📎</div>
+            <div class="step-text">
+              <div class="step-title">Uploading Resume</div>
+              <div class="step-description">Attaching files...</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

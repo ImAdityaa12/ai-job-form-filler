@@ -118,21 +118,78 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
         return;
     }
 
-    showStatus('🚀 Using saved resume to fill form...', 'success');
+    // Show loader
+    showLoader();
+
+    // Step 1: Detecting fields
+    updateLoaderStep(1, 'active');
+    await sleep(500);
 
     // Send message to content script
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'fillForm' }, (response) => {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'fillForm' }, async (response) => {
             if (chrome.runtime.lastError) {
-                showStatus('Error: ' + chrome.runtime.lastError.message, 'error');
+                hideLoader();
+                showStatus('✗ Error: ' + chrome.runtime.lastError.message, 'error');
             } else if (response && response.success) {
-                showStatus('✅ Form filled successfully!', 'success');
+                // Complete all steps
+                updateLoaderStep(1, 'completed');
+                await sleep(300);
+                updateLoaderStep(2, 'active');
+                await sleep(800);
+                updateLoaderStep(2, 'completed');
+                await sleep(300);
+                updateLoaderStep(3, 'active');
+                await sleep(600);
+                updateLoaderStep(3, 'completed');
+                await sleep(300);
+                updateLoaderStep(4, 'active');
+                await sleep(400);
+                updateLoaderStep(4, 'completed');
+                await sleep(500);
+
+                hideLoader();
+                showStatus('✓ Form filled successfully!', 'success');
             } else {
-                showStatus('Error filling form: ' + (response?.error || 'Unknown error'), 'error');
+                hideLoader();
+                showStatus('✗ Error filling form: ' + (response?.error || 'Unknown error'), 'error');
             }
         });
     });
 });
+
+function showLoader() {
+    const overlay = document.getElementById('loaderOverlay');
+    overlay.classList.add('active');
+    // Reset all steps
+    for (let i = 1; i <= 4; i++) {
+        const step = document.getElementById(`step${i}`);
+        step.classList.remove('active', 'completed');
+    }
+}
+
+function hideLoader() {
+    const overlay = document.getElementById('loaderOverlay');
+    overlay.classList.remove('active');
+}
+
+function updateLoaderStep(stepNumber, status) {
+    return new Promise(resolve => {
+        const step = document.getElementById(`step${stepNumber}`);
+        if (status === 'active') {
+            step.classList.add('active');
+            step.classList.remove('completed');
+        } else if (status === 'completed') {
+            step.classList.remove('active');
+            step.classList.add('completed');
+        }
+        resolve();
+    });
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function showStatus(message, type) {
     const statusDiv = document.getElementById('status');
