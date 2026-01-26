@@ -8,16 +8,123 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
+// Function to show notification on page
+function showNotification(message, type = 'info') {
+    console.log('showNotification called:', message, type);
+
+    // Check if body exists
+    if (!document.body) {
+        console.error('document.body not found, waiting...');
+        setTimeout(() => showNotification(message, type), 100);
+        return;
+    }
+
+    // Remove existing notification if any
+    const existing = document.getElementById('ai-form-filler-notification');
+    if (existing) {
+        console.log('Removing existing notification');
+        existing.remove();
+    }
+
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.id = 'ai-form-filler-notification';
+    notification.style.cssText = `
+        position: fixed !important;
+        top: 20px !important;
+        right: 20px !important;
+        background: ${type === 'success' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' :
+            type === 'error' ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' :
+                'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'} !important;
+        color: white !important;
+        padding: 16px 24px !important;
+        border-radius: 12px !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
+        z-index: 2147483647 !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        animation: slideInRight 0.3s ease !important;
+        max-width: 350px !important;
+        pointer-events: auto !important;
+    `;
+
+    // Add icon based on type
+    const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : '⏳';
+    notification.innerHTML = `
+        <span style="font-size: 20px;">${icon}</span>
+        <span>${message}</span>
+    `;
+
+    // Add animation
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(100px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        @keyframes slideOutRight {
+            from {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(100px);
+            }
+        }
+    `;
+    if (!document.getElementById('ai-form-filler-styles')) {
+        style.id = 'ai-form-filler-styles';
+        document.head.appendChild(style);
+    }
+
+    document.body.appendChild(notification);
+    console.log('Notification appended to body');
+
+    // Auto remove after delay (longer for errors)
+    const delay = type === 'error' ? 5000 : 3000;
+    setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+                console.log('Notification removed');
+            }
+        }, 300);
+    }, delay);
+}
+
 async function fillFormWithAI() {
+    // Show starting notification
+    showNotification('🤖 AI Form Filler: Detecting fields...', 'info');
+
     const { apiKey, resumeText, resumeFileData, resumeFileName, resumeFileType } = await chrome.storage.local.get(['apiKey', 'resumeText', 'resumeFileData', 'resumeFileName', 'resumeFileType']);
-    if (!apiKey || !resumeText) throw new Error('API key or resume not found');
+
+    if (!apiKey || !resumeText) {
+        showNotification('⚠️ Please save your API key and resume first', 'error');
+        throw new Error('API key or resume not found');
+    }
 
     const formFields = findFormFields();
     const fileInputs = findFileInputs();
 
     if (formFields.length === 0 && fileInputs.length === 0) {
+        showNotification('⚠️ No form fields found on this page', 'error');
         throw new Error('No form fields found on this page');
     }
+
+    // Update notification
+    showNotification(`🔍 Found ${formFields.length} fields. Generating answers...`, 'info');
 
     // First, log all questions found
     console.log('=== FORM FIELDS DETECTED ===');
@@ -44,6 +151,9 @@ async function fillFormWithAI() {
         if (formFields.length > 0) {
             const answers = await generateAllAnswers(formFields, resumeText, apiKey);
 
+            // Update notification
+            showNotification('📝 Filling form fields...', 'info');
+
             // Fill the fields with the answers
             for (let i = 0; i < formFields.length; i++) {
                 const field = formFields[i];
@@ -52,14 +162,20 @@ async function fillFormWithAI() {
                 console.log(`📝 Filling field: "${field.label}"`);
                 console.log(`✅ Answer: ${answer}`);
 
-                fillField(field.element, answer, field.type);
+                if (field.type === 'radio') {
+                    console.log(`   Options: ${field.options.map(o => o.label).join(', ')}`);
+                }
+
+                fillField(field, answer);
                 await sleep(200);
             }
         }
 
         console.log('\n=== FORM FILLING COMPLETE ===');
+        showNotification('✓ Form filled successfully!', 'success');
     } catch (error) {
         console.error('❌ Error filling form:', error);
+        showNotification(`✗ Error: ${error.message}`, 'error');
         throw error;
     }
 }
@@ -80,7 +196,108 @@ function findFormFields() {
             });
         }
     });
+
+    // Find radio button groups
+    const radioGroups = new Map();
+    const radioInputs = document.querySelectorAll('input[type="radio"]');
+
+    radioInputs.forEach(radio => {
+        if (radio.offsetParent === null || radio.disabled) return;
+        const groupName = radio.name;
+        if (!groupName) return;
+
+        if (!radioGroups.has(groupName)) {
+            const label = getRadioGroupLabel(radio);
+            if (label) {
+                // Get all options for this radio group
+                const options = Array.from(document.querySelectorAll(`input[type="radio"][name="${groupName}"]`))
+                    .map(r => {
+                        const optionLabel = getRadioOptionLabel(r);
+                        return { element: r, label: optionLabel, value: r.value };
+                    });
+
+                radioGroups.set(groupName, {
+                    element: radio, // First radio in group
+                    label: label,
+                    type: 'radio',
+                    inputType: 'radio',
+                    groupName: groupName,
+                    options: options
+                });
+            }
+        }
+    });
+
+    // Add radio groups to fields
+    radioGroups.forEach(group => fields.push(group));
+
     return fields;
+}
+
+function getRadioGroupLabel(radioElement) {
+    // Try to find the group label (usually in a parent element)
+    let parent = radioElement.closest('[data-testid*="input-"]');
+    if (parent) {
+        // Look for label with specific patterns
+        const labelElement = parent.querySelector('label[id*="label"]') ||
+            parent.querySelector('label[class*="10g55w1"]');
+        if (labelElement) {
+            // Try to find the text element within the label
+            const textElement = labelElement.querySelector('[data-testid*="label"]:not([data-testid*="asterisk"])') ||
+                labelElement.querySelector('span[data-testid="safe-markup"]') ||
+                labelElement.querySelector('span.mosaic-provider-module-apply-questions-1wsk8bh');
+            if (textElement) {
+                return textElement.textContent.trim().replace(/\*/g, '').replace(/:/g, '').trim();
+            }
+
+            // Fallback: get text from label, excluding asterisk
+            const clone = labelElement.cloneNode(true);
+            const asterisk = clone.querySelector('[data-testid*="asterisk"]');
+            if (asterisk) asterisk.remove();
+            const text = clone.textContent.trim().replace(/\*/g, '').replace(/:/g, '').trim();
+            if (text) return text;
+        }
+    }
+
+    // Fallback: look for aria-labelledby
+    const labelId = radioElement.getAttribute('aria-labelledby');
+    if (labelId) {
+        const labelElement = document.getElementById(labelId);
+        if (labelElement) return labelElement.textContent.trim().replace(/\*/g, '').replace(/:/g, '').trim();
+    }
+
+    // Fallback: use name attribute
+    if (radioElement.name) {
+        return radioElement.name.replace(/[_-]/g, ' ').trim();
+    }
+
+    return null;
+}
+
+function getRadioOptionLabel(radioElement) {
+    // Look for label associated with this specific radio
+    const label = radioElement.closest('label');
+    if (label) {
+        // Try multiple selectors for the label text
+        const span = label.querySelector('span.mosaic-provider-module-apply-questions-1hx0a07') ||
+            label.querySelector('span[class*="1hx0a07"]') ||
+            label.querySelector('span.eu4oa1w0') ||
+            label.querySelector('span:last-child');
+        if (span) {
+            const text = span.textContent.trim();
+            if (text) return text;
+        }
+
+        // Fallback: get all text from label, excluding the input
+        const clone = label.cloneNode(true);
+        const input = clone.querySelector('input');
+        if (input) input.remove();
+        const text = clone.textContent.trim();
+        if (text) return text;
+    }
+
+    // Fallback to value
+    return radioElement.value;
 }
 
 function findFileInputs() {
@@ -311,16 +528,45 @@ Your JSON array:`;
     throw lastError || new Error('All models failed. Please check your API key and try again.');
 }
 
-function fillField(element, value, type) {
+function fillField(field, value) {
     // Skip if value is empty
     if (!value || value.trim() === '') {
         console.log(`Skipping empty value for field`);
         return;
     }
 
-    if (type === 'select') {
+    if (field.type === 'radio') {
+        // For radio button groups
+        let matched = false;
+
+        // Try to match the answer with one of the radio options
+        for (const option of field.options) {
+            if (option.label.toLowerCase().includes(value.toLowerCase()) ||
+                value.toLowerCase().includes(option.label.toLowerCase()) ||
+                option.value === value) {
+                // Click the radio button
+                option.element.checked = true;
+                option.element.click();
+                matched = true;
+                console.log(`✓ Selected radio option: "${option.label}"`);
+
+                // Visual feedback
+                if (option.element.parentElement) {
+                    option.element.parentElement.style.backgroundColor = '#e8f5e9';
+                    setTimeout(() => {
+                        option.element.parentElement.style.backgroundColor = '';
+                    }, 1000);
+                }
+                break;
+            }
+        }
+
+        if (!matched) {
+            console.log(`No matching radio option found for: "${value}"`);
+        }
+    } else if (field.type === 'select') {
         // For select/dropdown fields
-        const select = element;
+        const select = field.element;
         let matched = false;
 
         // Try to find matching option (case-insensitive)
@@ -337,19 +583,28 @@ function fillField(element, value, type) {
         if (!matched) {
             console.log(`No matching option found for: "${value}"`);
         }
+
+        // Trigger events
+        select.dispatchEvent(new Event('input', { bubbles: true }));
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        select.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        // Visual feedback
+        select.style.backgroundColor = '#e8f5e9';
+        setTimeout(() => { select.style.backgroundColor = ''; }, 1000);
     } else {
         // For text inputs and textareas
-        element.value = value;
+        field.element.value = value;
+
+        // Trigger events
+        field.element.dispatchEvent(new Event('input', { bubbles: true }));
+        field.element.dispatchEvent(new Event('change', { bubbles: true }));
+        field.element.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        // Visual feedback
+        field.element.style.backgroundColor = '#e8f5e9';
+        setTimeout(() => { field.element.style.backgroundColor = ''; }, 1000);
     }
-
-    // Trigger events
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    element.dispatchEvent(new Event('blur', { bubbles: true }));
-
-    // Visual feedback
-    element.style.backgroundColor = '#e8f5e9';
-    setTimeout(() => { element.style.backgroundColor = ''; }, 1000);
 }
 
 async function fillFileInput(element, base64Data, fileName, fileType) {

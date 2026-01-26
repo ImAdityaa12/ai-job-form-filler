@@ -22,5 +22,14 @@
   ],
   "background": {
     "service_worker": "background.js"
+  },
+  "commands": {
+    "fill-form": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Fill form automatically with AI"
+    }
   }
 }
