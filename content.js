@@ -136,7 +136,7 @@ async function generateAllAnswers(formFields, resumeText, apiKey) {
     // Build a list of all questions
     const fieldsList = formFields.map((field, index) => `${index + 1}. ${field.label}`).join('\n');
 
-    const prompt = `You are filling a job application form. Answer ALL questions below in ONE response.
+    const prompt = `You are an experienced software engineer filling a job application form. Answer ALL questions below professionally based on the resume provided.
 
 Resume:
 ${resumeText}
@@ -145,22 +145,30 @@ Form Fields to Fill:
 ${fieldsList}
 
 Task:
-Provide answers for ALL fields above. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
+Provide thoughtful, professional answers for ALL ${formFields.length} fields. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
 
-Rules:
-- If the field is a cover letter, motivation, or "Why should we hire you":
-  → Write 3–5 sentences in first person ("I am", "I have")
-  → Sound human and professional
-  → Mention relevant skills and experience from the resume
-  → Do NOT repeat the resume verbatim
-- If the field asks for name, email, phone, LinkedIn, or portfolio:
-  → Extract the exact value from the resume
-- If the information is not available:
-  → Respond with "N/A"
-- Do NOT use markdown
-- Do NOT add headings
-- Do NOT add greetings or sign-offs
-- Return ONLY a JSON array with ${formFields.length} strings
+IMPORTANT RULES:
+1. For TECHNICAL QUESTIONS (how do you approach X, describe your experience with Y, etc.):
+   → Write 3-5 sentences based on skills/experience from the resume
+   → Use first person ("I", "In my experience", "I approach")
+   → Be specific and professional
+   → Reference technologies/frameworks from the resume when relevant
+   → NEVER say "N/A" for technical questions - always provide a thoughtful answer
+
+2. For SIMPLE FIELDS (name, email, phone, LinkedIn, portfolio):
+   → Extract the exact value from the resume
+   → If not in resume, respond with "N/A"
+
+3. For MOTIVATION/COVER LETTER questions:
+   → Write 3-5 sentences explaining why you're a good fit
+   → Reference relevant experience from resume
+   → Sound enthusiastic but professional
+
+4. FORMATTING:
+   → Do NOT use markdown, bullet points, or special formatting
+   → Do NOT add headings or labels
+   → Write in paragraph form
+   → Keep answers concise but meaningful (50-150 words for technical questions)
 
 Example format:
 ["Answer for field 1", "Answer for field 2", "Answer for field 3"]
@@ -179,8 +187,8 @@ Your JSON array:`;
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
                     generationConfig: {
-                        temperature: 0.7,
-                        maxOutputTokens: 2048 // Increased for multiple answers
+                        temperature: 0.8,
+                        maxOutputTokens: 4096 // Increased for longer technical answers
                     }
                 })
             });

@@ -479,20 +479,35 @@
             </button>
             <div id="fileName"></div>
           </div>
-          <small>This file will be uploaded to job application forms</small>
+          <small>PDF text will be automatically extracted</small>
         </div>
 
         <div class="section">
           <label>
             <span class="icon">📝</span>
-            Resume Text
+            Extracted Resume Text
           </label>
           <textarea
             id="resume"
-            placeholder="Paste your resume text here for AI to generate answers..."
+            placeholder="Resume text will appear here after uploading PDF..."
+            readonly
+            style="background: #f3f4f6; cursor: not-allowed"
+          ></textarea>
+          <small>Automatically extracted from your resume file</small>
+        </div>
+
+        <div class="section">
+          <label>
+            <span class="icon">✏️</span>
+            Additional Information (Optional)
+          </label>
+          <textarea
+            id="additionalInfo"
+            placeholder="Add any extra details not in your resume (e.g., cover letter points, specific achievements, etc.)..."
+            style="min-height: 80px"
           ></textarea>
           <small
-            >AI uses this text to answer form questions intelligently</small
+            >This will be combined with your resume for better answers</small
           >
         </div>
 
