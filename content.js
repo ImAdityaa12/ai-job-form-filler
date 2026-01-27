@@ -8,16 +8,123 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
+// Function to show notification on page
+function showNotification(message, type = 'info') {
+    console.log('showNotification called:', message, type);
+
+    // Check if body exists
+    if (!document.body) {
+        console.error('document.body not found, waiting...');
+        setTimeout(() => showNotification(message, type), 100);
+        return;
+    }
+
+    // Remove existing notification if any
+    const existing = document.getElementById('ai-form-filler-notification');
+    if (existing) {
+        console.log('Removing existing notification');
+        existing.remove();
+    }
+
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.id = 'ai-form-filler-notification';
+    notification.style.cssText = `
+        position: fixed !important;
+        top: 20px !important;
+        right: 20px !important;
+        background: ${type === 'success' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' :
+            type === 'error' ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' :
+                'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'} !important;
+        color: white !important;
+        padding: 16px 24px !important;
+        border-radius: 12px !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
+        z-index: 2147483647 !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        animation: slideInRight 0.3s ease !important;
+        max-width: 350px !important;
+        pointer-events: auto !important;
+    `;
+
+    // Add icon based on type
+    const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : '⏳';
+    notification.innerHTML = `
+        <span style="font-size: 20px;">${icon}</span>
+        <span>${message}</span>
+    `;
+
+    // Add animation
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(100px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        @keyframes slideOutRight {
+            from {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(100px);
+            }
+        }
+    `;
+    if (!document.getElementById('ai-form-filler-styles')) {
+        style.id = 'ai-form-filler-styles';
+        document.head.appendChild(style);
+    }
+
+    document.body.appendChild(notification);
+    console.log('Notification appended to body');
+
+    // Auto remove after delay (longer for errors)
+    const delay = type === 'error' ? 5000 : 3000;
+    setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+                console.log('Notification removed');
+            }
+        }, 300);
+    }, delay);
+}
+
 async function fillFormWithAI() {
+    // Show starting notification
+    showNotification('🤖 AI Form Filler: Detecting fields...', 'info');
+
     const { apiKey, resumeText, resumeFileData, resumeFileName, resumeFileType } = await chrome.storage.local.get(['apiKey', 'resumeText', 'resumeFileData', 'resumeFileName', 'resumeFileType']);
-    if (!apiKey || !resumeText) throw new Error('API key or resume not found');
+
+    if (!apiKey || !resumeText) {
+        showNotification('⚠️ Please save your API key and resume first', 'error');
+        throw new Error('API key or resume not found');
+    }
 
     const formFields = findFormFields();
     const fileInputs = findFileInputs();
 
     if (formFields.length === 0 && fileInputs.length === 0) {
+        showNotification('⚠️ No form fields found on this page', 'error');
         throw new Error('No form fields found on this page');
     }
+
+    // Update notification
+    showNotification(`🔍 Found ${formFields.length} fields. Generating answers...`, 'info');
 
     // First, log all questions found
     console.log('=== FORM FIELDS DETECTED ===');
@@ -44,6 +151,9 @@ async function fillFormWithAI() {
         if (formFields.length > 0) {
             const answers = await generateAllAnswers(formFields, resumeText, apiKey);
 
+            // Update notification
+            showNotification('📝 Filling form fields...', 'info');
+
             // Fill the fields with the answers
             for (let i = 0; i < formFields.length; i++) {
                 const field = formFields[i];
@@ -52,21 +162,27 @@ async function fillFormWithAI() {
                 console.log(`📝 Filling field: "${field.label}"`);
                 console.log(`✅ Answer: ${answer}`);
 
-                fillField(field.element, answer, field.type);
+                if (field.type === 'radio') {
+                    console.log(`   Options: ${field.options.map(o => o.label).join(', ')}`);
+                }
+
+                fillField(field, answer);
                 await sleep(200);
             }
         }
 
         console.log('\n=== FORM FILLING COMPLETE ===');
+        showNotification('✓ Form filled successfully!', 'success');
     } catch (error) {
         console.error('❌ Error filling form:', error);
+        showNotification(`✗ Error: ${error.message}`, 'error');
         throw error;
     }
 }
 
 function findFormFields() {
     const fields = [];
-    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input:not([type]), textarea');
+    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input:not([type]), textarea, select');
 
     inputs.forEach(input => {
         if (input.offsetParent === null || input.disabled || input.readOnly) return;
@@ -75,12 +191,113 @@ function findFormFields() {
             fields.push({
                 element: input,
                 label: label,
-                type: input.tagName.toLowerCase() === 'textarea' ? 'textarea' : 'input',
+                type: input.tagName.toLowerCase(),
                 inputType: input.type || 'text'
             });
         }
     });
+
+    // Find radio button groups
+    const radioGroups = new Map();
+    const radioInputs = document.querySelectorAll('input[type="radio"]');
+
+    radioInputs.forEach(radio => {
+        if (radio.offsetParent === null || radio.disabled) return;
+        const groupName = radio.name;
+        if (!groupName) return;
+
+        if (!radioGroups.has(groupName)) {
+            const label = getRadioGroupLabel(radio);
+            if (label) {
+                // Get all options for this radio group
+                const options = Array.from(document.querySelectorAll(`input[type="radio"][name="${groupName}"]`))
+                    .map(r => {
+                        const optionLabel = getRadioOptionLabel(r);
+                        return { element: r, label: optionLabel, value: r.value };
+                    });
+
+                radioGroups.set(groupName, {
+                    element: radio, // First radio in group
+                    label: label,
+                    type: 'radio',
+                    inputType: 'radio',
+                    groupName: groupName,
+                    options: options
+                });
+            }
+        }
+    });
+
+    // Add radio groups to fields
+    radioGroups.forEach(group => fields.push(group));
+
     return fields;
+}
+
+function getRadioGroupLabel(radioElement) {
+    // Try to find the group label (usually in a parent element)
+    let parent = radioElement.closest('[data-testid*="input-"]');
+    if (parent) {
+        // Look for label with specific patterns
+        const labelElement = parent.querySelector('label[id*="label"]') ||
+            parent.querySelector('label[class*="10g55w1"]');
+        if (labelElement) {
+            // Try to find the text element within the label
+            const textElement = labelElement.querySelector('[data-testid*="label"]:not([data-testid*="asterisk"])') ||
+                labelElement.querySelector('span[data-testid="safe-markup"]') ||
+                labelElement.querySelector('span.mosaic-provider-module-apply-questions-1wsk8bh');
+            if (textElement) {
+                return textElement.textContent.trim().replace(/\*/g, '').replace(/:/g, '').trim();
+            }
+
+            // Fallback: get text from label, excluding asterisk
+            const clone = labelElement.cloneNode(true);
+            const asterisk = clone.querySelector('[data-testid*="asterisk"]');
+            if (asterisk) asterisk.remove();
+            const text = clone.textContent.trim().replace(/\*/g, '').replace(/:/g, '').trim();
+            if (text) return text;
+        }
+    }
+
+    // Fallback: look for aria-labelledby
+    const labelId = radioElement.getAttribute('aria-labelledby');
+    if (labelId) {
+        const labelElement = document.getElementById(labelId);
+        if (labelElement) return labelElement.textContent.trim().replace(/\*/g, '').replace(/:/g, '').trim();
+    }
+
+    // Fallback: use name attribute
+    if (radioElement.name) {
+        return radioElement.name.replace(/[_-]/g, ' ').trim();
+    }
+
+    return null;
+}
+
+function getRadioOptionLabel(radioElement) {
+    // Look for label associated with this specific radio
+    const label = radioElement.closest('label');
+    if (label) {
+        // Try multiple selectors for the label text
+        const span = label.querySelector('span.mosaic-provider-module-apply-questions-1hx0a07') ||
+            label.querySelector('span[class*="1hx0a07"]') ||
+            label.querySelector('span.eu4oa1w0') ||
+            label.querySelector('span:last-child');
+        if (span) {
+            const text = span.textContent.trim();
+            if (text) return text;
+        }
+
+        // Fallback: get all text from label, excluding the input
+        const clone = label.cloneNode(true);
+        const input = clone.querySelector('input');
+        if (input) input.remove();
+        const text = clone.textContent.trim();
+        if (text) return text;
+    }
+
+    // Fallback to value
+    return radioElement.value;
 }
 
 function findFileInputs() {
@@ -136,7 +353,7 @@ async function generateAllAnswers(formFields, resumeText, apiKey) {
     // Build a list of all questions
     const fieldsList = formFields.map((field, index) => `${index + 1}. ${field.label}`).join('\n');
 
-    const prompt = `You are filling a job application form. Answer ALL questions below in ONE response.
+    const prompt = `You are an experienced software engineer filling a job application form. Write answers that sound natural, conversational, and human - NOT like AI-generated text.
 
 Resume:
 ${resumeText}
@@ -145,25 +362,60 @@ Form Fields to Fill:
 ${fieldsList}
 
 Task:
-Provide answers for ALL fields above. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
+Provide thoughtful, HUMAN-SOUNDING answers for ALL ${formFields.length} fields. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
 
-Rules:
-- If the field is a cover letter, motivation, or "Why should we hire you":
-  → Write 3–5 sentences in first person ("I am", "I have")
-  → Sound human and professional
-  → Mention relevant skills and experience from the resume
-  → Do NOT repeat the resume verbatim
-- If the field asks for name, email, phone, LinkedIn, or portfolio:
-  → Extract the exact value from the resume
-- If the information is not available:
-  → Respond with "N/A"
-- Do NOT use markdown
-- Do NOT add headings
-- Do NOT add greetings or sign-offs
-- Return ONLY a JSON array with ${formFields.length} strings
+CRITICAL: WRITE LIKE A REAL PERSON, NOT AN AI:
+- Use casual, conversational language
+- Include personal touches ("I've found that...", "In my experience...", "One thing I learned...")
+- Vary sentence structure (mix short and long sentences)
+- Use contractions (I've, I'd, it's, that's)
+- Be specific with examples, not generic
+- Show personality while staying professional
+- Avoid corporate jargon and buzzwords
+- Don't sound overly formal or robotic
 
-Example format:
-["Answer for field 1", "Answer for field 2", "Answer for field 3"]
+ANSWER GUIDELINES:
+
+1. For TECHNICAL QUESTIONS (how do you approach X, describe your experience with Y):
+   → Write 3-5 sentences in a conversational tone
+   → Start with phrases like "I usually...", "I've found...", "My approach is..."
+   → Reference specific technologies/projects from the resume
+   → Share a brief example or insight
+   → NEVER say "N/A" - always provide a thoughtful answer
+   → Sound like you're explaining to a colleague, not writing a textbook
+
+2. For SIMPLE FIELDS (name, email, phone, LinkedIn):
+   → Extract the exact value from the resume
+   → If not in resume, return empty string ""
+
+3. For MOTIVATION/WHY questions:
+   → Write 3-5 sentences explaining genuine interest
+   → Be enthusiastic but authentic
+   → Reference specific aspects of the role/company if mentioned
+   → Show personality
+
+4. For SELECT/DROPDOWN fields (usually single word answers like "Yes", "No", country names, etc.):
+   → Provide a simple, direct answer that would match a dropdown option
+   → Examples: "Yes", "No", "India", "Bachelor's", "5-10 years", etc.
+   → If not applicable, return empty string ""
+
+5. If information is NOT AVAILABLE or NOT APPLICABLE:
+   → Return empty string ""
+   → DO NOT write "N/A" or "Not applicable"
+   → Just leave it blank with ""
+
+6. FORMATTING:
+   → No markdown, bullet points, or special formatting
+   → No headings or labels
+   → Write in natural paragraph form
+   → Keep answers 50-150 words for technical questions
+   → Sound conversational, not formal
+
+Example of GOOD (human) answer:
+"I usually start by setting up a clear folder structure based on features rather than file types. In my last project, we used a modular architecture where each feature had its own components, hooks, and tests. This made it way easier to scale as the team grew. We also relied heavily on TypeScript and ESLint to catch issues early."
+
+Example of BAD (robotic) answer:
+"I utilize industry-standard best practices to implement scalable architecture patterns. My approach involves leveraging modular design principles and adhering to established conventions."
 
 Your JSON array:`;
 
@@ -179,8 +431,8 @@ Your JSON array:`;
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
                     generationConfig: {
-                        temperature: 0.7,
-                        maxOutputTokens: 2048 // Increased for multiple answers
+                        temperature: 0.8,
+                        maxOutputTokens: 4096 // Increased for longer technical answers
                     }
                 })
             });
@@ -240,10 +492,10 @@ Your JSON array:`;
                 }
 
                 if (answers.length !== formFields.length) {
-                    console.warn(`Expected ${formFields.length} answers, got ${answers.length}. Padding with N/A...`);
-                    // Pad with N/A if needed
+                    console.warn(`Expected ${formFields.length} answers, got ${answers.length}. Padding with empty strings...`);
+                    // Pad with empty strings if needed
                     while (answers.length < formFields.length) {
-                        answers.push('N/A');
+                        answers.push('');
                     }
                 }
 
@@ -258,7 +510,7 @@ Your JSON array:`;
 
                 if (answers.length < formFields.length) {
                     while (answers.length < formFields.length) {
-                        answers.push('N/A');
+                        answers.push('');
                     }
                 }
 
@@ -276,13 +528,83 @@ Your JSON array:`;
     throw lastError || new Error('All models failed. Please check your API key and try again.');
 }
 
-function fillField(element, value, type) {
-    element.value = value;
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    element.dispatchEvent(new Event('blur', { bubbles: true }));
-    element.style.backgroundColor = '#e8f5e9';
-    setTimeout(() => { element.style.backgroundColor = ''; }, 1000);
+function fillField(field, value) {
+    // Skip if value is empty
+    if (!value || value.trim() === '') {
+        console.log(`Skipping empty value for field`);
+        return;
+    }
+
+    if (field.type === 'radio') {
+        // For radio button groups
+        let matched = false;
+
+        // Try to match the answer with one of the radio options
+        for (const option of field.options) {
+            if (option.label.toLowerCase().includes(value.toLowerCase()) ||
+                value.toLowerCase().includes(option.label.toLowerCase()) ||
+                option.value === value) {
+                // Click the radio button
+                option.element.checked = true;
+                option.element.click();
+                matched = true;
+                console.log(`✓ Selected radio option: "${option.label}"`);
+
+                // Visual feedback
+                if (option.element.parentElement) {
+                    option.element.parentElement.style.backgroundColor = '#e8f5e9';
+                    setTimeout(() => {
+                        option.element.parentElement.style.backgroundColor = '';
+                    }, 1000);
+                }
+                break;
+            }
+        }
+
+        if (!matched) {
+            console.log(`No matching radio option found for: "${value}"`);
+        }
+    } else if (field.type === 'select') {
+        // For select/dropdown fields
+        const select = field.element;
+        let matched = false;
+
+        // Try to find matching option (case-insensitive)
+        for (let option of select.options) {
+            if (option.text.toLowerCase().includes(value.toLowerCase()) ||
+                option.value.toLowerCase().includes(value.toLowerCase()) ||
+                value.toLowerCase().includes(option.text.toLowerCase())) {
+                select.value = option.value;
+                matched = true;
+                break;
+            }
+        }
+
+        if (!matched) {
+            console.log(`No matching option found for: "${value}"`);
+        }
+
+        // Trigger events
+        select.dispatchEvent(new Event('input', { bubbles: true }));
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        select.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        // Visual feedback
+        select.style.backgroundColor = '#e8f5e9';
+        setTimeout(() => { select.style.backgroundColor = ''; }, 1000);
+    } else {
+        // For text inputs and textareas
+        field.element.value = value;
+
+        // Trigger events
+        field.element.dispatchEvent(new Event('input', { bubbles: true }));
+        field.element.dispatchEvent(new Event('change', { bubbles: true }));
+        field.element.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        // Visual feedback
+        field.element.style.backgroundColor = '#e8f5e9';
+        setTimeout(() => { field.element.style.backgroundColor = ''; }, 1000);
+    }
 }
 
 async function fillFileInput(element, base64Data, fileName, fileType) {
