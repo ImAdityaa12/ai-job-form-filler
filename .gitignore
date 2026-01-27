@@ -1,6 +1,6 @@
-*.png
+# *.png
 node_modules/
 .DS_Store
 .kiro/
-test-form.html
-create-icons.html
+# test-form.html
+# create-icons.html
