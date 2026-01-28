@@ -126,6 +126,9 @@ async function fillFormWithAI() {
     // Update notification
     showNotification(`🔍 Found ${formFields.length} fields. Generating answers...`, 'info');
 
+    // Extract job context from the page
+    const jobContext = extractJobContext();
+
     // First, log all questions found
     console.log('=== FORM FIELDS DETECTED ===');
     console.log(`Found ${formFields.length} text fields and ${fileInputs.length} file upload fields`);
@@ -135,6 +138,8 @@ async function fillFormWithAI() {
     fileInputs.forEach((field, index) => {
         console.log(`FILE ${index + 1}. "${field.label}"`);
     });
+    console.log('=== JOB CONTEXT ===');
+    console.log(jobContext);
     console.log('=== GENERATING ALL ANSWERS IN ONE API CALL ===\n');
 
     try {
@@ -149,7 +154,7 @@ async function fillFormWithAI() {
 
         // Generate all text answers in one API call
         if (formFields.length > 0) {
-            const answers = await generateAllAnswers(formFields, resumeText, apiKey);
+            const answers = await generateAllAnswers(formFields, resumeText, apiKey, jobContext);
 
             // Update notification
             showNotification('📝 Filling form fields...', 'info');
@@ -157,10 +162,23 @@ async function fillFormWithAI() {
             // Fill the fields with the answers
             for (let i = 0; i < formFields.length; i++) {
                 const field = formFields[i];
-                const answer = answers[i];
+                let answer = answers[i];
+
+                // Apply character limit - use field's maxLength or default to 500 for text fields
+                const maxLength = field.maxLength ? parseInt(field.maxLength) :
+                    (field.type === 'textarea' || field.inputType === 'text') ? 500 : null;
+
+                if (maxLength && answer && answer.length > maxLength) {
+                    console.warn(`Answer for "${field.label}" is ${answer.length} chars, truncating to ${maxLength}`);
+                    // Truncate to maxLength
+                    answer = answer.substring(0, maxLength);
+                }
 
                 console.log(`📝 Filling field: "${field.label}"`);
                 console.log(`✅ Answer: ${answer}`);
+                if (maxLength) {
+                    console.log(`   Character count: ${answer ? answer.length : 0}/${maxLength}`);
+                }
 
                 if (field.type === 'radio') {
                     console.log(`   Options: ${field.options.map(o => o.label).join(', ')}`);
@@ -220,7 +238,8 @@ function findFormFields() {
                 selectElement: selectElement, // Store the original select if found
                 label: placeholder,
                 type: 'select2-search',
-                inputType: 'select2'
+                inputType: 'select2',
+                maxLength: null
             });
 
             if (selectElement) {
@@ -246,7 +265,8 @@ function findFormFields() {
                 element: input,
                 label: label,
                 type: input.tagName.toLowerCase(),
-                inputType: input.type || 'text'
+                inputType: input.type || 'text',
+                maxLength: input.getAttribute('maxlength') || null
             });
         }
     });
@@ -266,7 +286,8 @@ function findFormFields() {
                         label: label,
                         type: 'select2',
                         inputType: 'select2',
-                        container: container
+                        container: container,
+                        maxLength: null
                     });
                 }
             }
@@ -281,7 +302,8 @@ function findFormFields() {
                         label: label,
                         type: 'select2',
                         inputType: 'select2',
-                        container: container
+                        container: container,
+                        maxLength: null
                     });
                 }
             }
@@ -313,7 +335,8 @@ function findFormFields() {
                     type: 'radio',
                     inputType: 'radio',
                     groupName: groupName,
-                    options: options
+                    options: options,
+                    maxLength: null
                 });
             }
         }
@@ -453,22 +476,71 @@ function getFieldLabel(element) {
     return label;
 }
 
-async function generateAllAnswers(formFields, resumeText, apiKey) {
-    // Build a list of all questions
-    const fieldsList = formFields.map((field, index) => `${index + 1}. ${field.label}`).join('\n');
+function extractJobContext() {
+    // Get all visible text content from the page
+    const bodyText = document.body.innerText;
+
+    // Limit to first 3000 characters to avoid token limits
+    // This should capture job title, company, description, and requirements
+    const pageContent = bodyText.substring(0, 3000);
+
+    return {
+        pageContent: pageContent,
+        pageTitle: document.title,
+        url: window.location.href
+    };
+}
+
+async function generateAllAnswers(formFields, resumeText, apiKey, jobContext) {
+    // Build a list of all questions with character limits
+    const fieldsList = formFields.map((field, index) => {
+        // Default to 500 chars for text fields if no maxLength specified
+        const maxLength = field.maxLength ||
+            (field.type === 'textarea' || field.inputType === 'text') ? 500 : null;
+        const limitText = maxLength ? ` (STRICT LIMIT: ${maxLength} characters)` : '';
+        return `${index + 1}. ${field.label}${limitText}`;
+    }).join('\n');
 
     const prompt = `You are an experienced software engineer filling a job application form. Write answers that sound natural, conversational, and human - NOT like AI-generated text.
 
-Resume:
+PAGE CONTENT (Job Posting):
+${jobContext.pageContent}
+
+YOUR RESUME:
 ${resumeText}
 
 Form Fields to Fill:
 ${fieldsList}
 
 Task:
-Provide thoughtful, HUMAN-SOUNDING answers for ALL ${formFields.length} fields. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
+1. FIRST, analyze the page content above to identify:
+   - Job title/position (e.g., "Full Stack Developer", "React Native Developer", "Frontend Engineer")
+   - Company name
+   - Key technologies and skills required
+   - Job responsibilities and requirements
 
-CRITICAL: WRITE LIKE A REAL PERSON, NOT AN AI:
+2. THEN, provide thoughtful, HUMAN-SOUNDING answers for ALL ${formFields.length} fields. Return your response as a JSON array with exactly ${formFields.length} answers in the same order.
+
+CRITICAL INSTRUCTIONS:
+1. TAILOR YOUR ANSWERS TO THE JOB: Based on the job posting content above, highlight relevant experience from your resume that matches this specific role.
+2. If the job is for Full Stack Developer, emphasize both frontend AND backend experience.
+3. If the job is for React Native/Mobile Developer, emphasize mobile development experience.
+4. If the job is for Frontend Developer, focus on frontend technologies and UI/UX skills.
+5. If the job is for Backend Developer, focus on server-side technologies, APIs, databases.
+6. Always connect your resume experience to what the job posting is asking for.
+
+CHARACTER LIMITS - ABSOLUTELY CRITICAL - READ THIS CAREFULLY:
+- Most fields have a STRICT LIMIT of 500 characters or less
+- You MUST write answers that are SHORTER than the limit
+- For 500 character limit: Write 2-3 SHORT sentences, approximately 400-450 characters MAX
+- For 1000 character limit: Write 4-5 sentences, approximately 800-900 characters MAX
+- Count characters as you write (spaces and punctuation count!)
+- COMPLETE YOUR SENTENCES - never end mid-sentence
+- If you're approaching the limit, finish your current sentence and STOP
+- Better to write less and be complete than to write more and get cut off
+- DO NOT exceed the character limit - answers will be rejected if too long
+
+WRITE LIKE A REAL PERSON, NOT AN AI:
 - Use casual, conversational language
 - Include personal touches ("I've found that...", "In my experience...", "One thing I learned...")
 - Vary sentence structure (mix short and long sentences)
