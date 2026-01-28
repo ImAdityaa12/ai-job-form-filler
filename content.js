@@ -167,7 +167,10 @@ async function fillFormWithAI() {
                 }
 
                 fillField(field, answer);
-                await sleep(200);
+
+                // Longer delay for Select2 fields to allow dropdown interactions
+                const delay = field.type === 'select2-search' ? 1000 : 200;
+                await sleep(delay);
             }
         }
 
@@ -182,9 +185,60 @@ async function fillFormWithAI() {
 
 function findFormFields() {
     const fields = [];
-    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input:not([type]), textarea, select');
+    const processedSelect2 = new Set(); // Track processed Select2 fields
+
+    // First, find all Select2 search fields with placeholders
+    const select2SearchFields = document.querySelectorAll('input.select2-search__field[placeholder]');
+    select2SearchFields.forEach(input => {
+        const placeholder = input.getAttribute('placeholder');
+        // Only process if it has a meaningful placeholder (not empty and not the tiny internal ones)
+        if (placeholder && placeholder.trim() !== '' &&
+            input.style.width !== '5.25em' &&
+            parseFloat(input.style.width) > 50) {
+
+            // Find the associated select element
+            let selectElement = null;
+            const container = input.closest('.select2-container');
+            if (container) {
+                // Look for the original select before or after the container
+                selectElement = container.previousElementSibling;
+                if (!selectElement || selectElement.tagName !== 'SELECT') {
+                    selectElement = container.nextElementSibling;
+                }
+                if (!selectElement || selectElement.tagName !== 'SELECT') {
+                    // Try to find by aria-controls or other attributes
+                    const ariaControls = container.getAttribute('aria-controls');
+                    if (ariaControls) {
+                        const resultsId = ariaControls.replace('-results', '');
+                        selectElement = document.querySelector(`select[data-select2-id="${resultsId}"]`);
+                    }
+                }
+            }
+
+            fields.push({
+                element: input,
+                selectElement: selectElement, // Store the original select if found
+                label: placeholder,
+                type: 'select2-search',
+                inputType: 'select2'
+            });
+
+            if (selectElement) {
+                processedSelect2.add(selectElement);
+            }
+        }
+    });
+
+    // Now process regular inputs
+    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input:not([type]), textarea, select');
 
     inputs.forEach(input => {
+        // Skip select2 search fields (already processed above)
+        if (input.classList.contains('select2-search__field')) return;
+
+        // Skip select elements that are part of Select2 (already processed)
+        if (input.tagName === 'SELECT' && processedSelect2.has(input)) return;
+
         if (input.offsetParent === null || input.disabled || input.readOnly) return;
         const label = getFieldLabel(input);
         if (label) {
@@ -194,6 +248,43 @@ function findFormFields() {
                 type: input.tagName.toLowerCase(),
                 inputType: input.type || 'text'
             });
+        }
+    });
+
+    // Find Select2 dropdowns (custom select boxes)
+    const select2Containers = document.querySelectorAll('.select2-container');
+    select2Containers.forEach(container => {
+        // Find the original select element
+        const selectId = container.getAttribute('aria-owns');
+        if (selectId) {
+            const originalSelect = document.getElementById(selectId.replace('-results', ''));
+            if (originalSelect && originalSelect.tagName === 'SELECT') {
+                const label = getFieldLabel(originalSelect);
+                if (label) {
+                    fields.push({
+                        element: originalSelect,
+                        label: label,
+                        type: 'select2',
+                        inputType: 'select2',
+                        container: container
+                    });
+                }
+            }
+        } else {
+            // Try to find by looking at the previous sibling
+            const prevElement = container.previousElementSibling;
+            if (prevElement && prevElement.tagName === 'SELECT') {
+                const label = getFieldLabel(prevElement);
+                if (label) {
+                    fields.push({
+                        element: prevElement,
+                        label: label,
+                        type: 'select2',
+                        inputType: 'select2',
+                        container: container
+                    });
+                }
+            }
         }
     });
 
@@ -318,7 +409,12 @@ function findFileInputs() {
 function getFieldLabel(element) {
     let label = null;
 
-    if (element.id) {
+    // Check for placeholder first (especially for select2 fields)
+    if (element.placeholder && element.placeholder.trim() !== '') {
+        label = element.placeholder.trim();
+    }
+
+    if (!label && element.id) {
         const labelElement = document.querySelector(`label[for="${element.id}"]`);
         if (labelElement) label = labelElement.textContent.trim();
     }
@@ -333,13 +429,21 @@ function getFieldLabel(element) {
         }
     }
 
+    // Look for label in parent div structure (common in Bootstrap forms)
+    if (!label) {
+        const parentDiv = element.closest('.col-md-4, .col-xs-12, .form-group, .field-wrapper');
+        if (parentDiv) {
+            const labelElement = parentDiv.querySelector('label');
+            if (labelElement) label = labelElement.textContent.trim();
+        }
+    }
+
     if (!label && element.previousElementSibling) {
         const prev = element.previousElementSibling;
         if (prev.tagName === 'LABEL') label = prev.textContent.trim();
     }
 
     if (!label && element.getAttribute('aria-label')) label = element.getAttribute('aria-label').trim();
-    if (!label && element.placeholder) label = element.placeholder.trim();
     if (!label && element.name) label = element.name.replace(/[_-]/g, ' ').trim();
 
     if (label) {
@@ -399,7 +503,15 @@ ANSWER GUIDELINES:
    → Examples: "Yes", "No", "India", "Bachelor's", "5-10 years", etc.
    → If not applicable, return empty string ""
 
-5. If information is NOT AVAILABLE or NOT APPLICABLE:
+5. For NUMERIC FIELDS (salary, notice period, years of experience):
+   → CRITICAL: Return ONLY the number, NO text, NO currency symbols, NO units
+   → Examples: "50000" (not "$50,000" or "50000 USD")
+   → Examples: "30" (not "30 days" or "1 month")
+   → Examples: "5" (not "5 years")
+   → If the field label contains "salary", "notice", "period", "years", return ONLY digits
+   → If not in resume, estimate a reasonable number based on experience level
+
+6. If information is NOT AVAILABLE or NOT APPLICABLE:
    → Return empty string ""
    → DO NOT write "N/A" or "Not applicable"
    → Just leave it blank with ""
@@ -592,18 +704,118 @@ function fillField(field, value) {
         // Visual feedback
         select.style.backgroundColor = '#e8f5e9';
         setTimeout(() => { select.style.backgroundColor = ''; }, 1000);
+    } else if (field.type === 'select2-search') {
+        // For Select2 search fields - we need to interact with Select2 properly
+        const input = field.element;
+        const selectElement = field.selectElement;
+
+        // Method 1: If we have the original select element, try to set it directly
+        if (selectElement && window.jQuery && window.jQuery(selectElement).data('select2')) {
+            try {
+                const $select = window.jQuery(selectElement);
+
+                // Try to find matching option in the select
+                let matchedOption = null;
+                $select.find('option').each(function () {
+                    const optionText = window.jQuery(this).text().toLowerCase();
+                    const optionValue = window.jQuery(this).val().toLowerCase();
+                    if (optionText.includes(value.toLowerCase()) ||
+                        value.toLowerCase().includes(optionText) ||
+                        optionValue.includes(value.toLowerCase())) {
+                        matchedOption = window.jQuery(this).val();
+                        return false; // break
+                    }
+                });
+
+                if (matchedOption) {
+                    $select.val(matchedOption).trigger('change');
+                    console.log(`✓ Set Select2 via jQuery: "${value}"`);
+                } else {
+                    // If no match, try to create a new option (for tags/free input)
+                    const newOption = new Option(value, value, true, true);
+                    $select.append(newOption).trigger('change');
+                    console.log(`✓ Created new Select2 option: "${value}"`);
+                }
+
+                // Visual feedback on the container
+                const container = input.closest('.select2-container');
+                if (container) {
+                    container.style.backgroundColor = '#e8f5e9';
+                    setTimeout(() => { container.style.backgroundColor = ''; }, 1000);
+                }
+                return;
+            } catch (e) {
+                console.log('jQuery method failed, trying manual approach:', e);
+            }
+        }
+
+        // Method 2: Manual interaction with the search field
+        // Click to open the dropdown
+        const container = input.closest('.select2-container');
+        if (container) {
+            container.click();
+        }
+
+        setTimeout(() => {
+            // Focus and type into the search field
+            input.focus();
+            input.value = value;
+
+            // Trigger input events
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new InputEvent('input', {
+                bubbles: true,
+                cancelable: true,
+                data: value
+            }));
+
+            // Wait for results to appear, then select first result
+            setTimeout(() => {
+                // Try to find and click the first result
+                const results = document.querySelector('.select2-results__option[aria-selected="false"]');
+                if (results) {
+                    results.click();
+                    console.log(`✓ Selected Select2 result: "${value}"`);
+                } else {
+                    // If no results, try pressing Enter
+                    const enterEvent = new KeyboardEvent('keydown', {
+                        key: 'Enter',
+                        code: 'Enter',
+                        keyCode: 13,
+                        which: 13,
+                        bubbles: true
+                    });
+                    input.dispatchEvent(enterEvent);
+                }
+
+                // Visual feedback
+                if (container) {
+                    container.style.backgroundColor = '#e8f5e9';
+                    setTimeout(() => { container.style.backgroundColor = ''; }, 1000);
+                }
+            }, 500);
+        }, 200);
     } else {
-        // For text inputs and textareas
-        field.element.value = value;
+        // For text inputs, number inputs, and textareas
+        const element = field.element;
+
+        // For number inputs, ensure we're setting a valid number
+        if (element.type === 'number') {
+            // Extract numbers from the value
+            const numericValue = value.replace(/[^0-9.]/g, '');
+            element.value = numericValue;
+        } else {
+            element.value = value;
+        }
 
         // Trigger events
-        field.element.dispatchEvent(new Event('input', { bubbles: true }));
-        field.element.dispatchEvent(new Event('change', { bubbles: true }));
-        field.element.dispatchEvent(new Event('blur', { bubbles: true }));
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('blur', { bubbles: true }));
 
         // Visual feedback
-        field.element.style.backgroundColor = '#e8f5e9';
-        setTimeout(() => { field.element.style.backgroundColor = ''; }, 1000);
+        element.style.backgroundColor = '#e8f5e9';
+        setTimeout(() => { element.style.backgroundColor = ''; }, 1000);
     }
 }
 
