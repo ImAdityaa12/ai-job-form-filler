@@ -347,6 +347,34 @@
         margin: 0 auto 16px;
       }
 
+      .progress-container {
+        margin: 16px 0;
+      }
+
+      .progress-bar-wrapper {
+        width: 100%;
+        height: 8px;
+        background: #e5e7eb;
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 8px;
+      }
+
+      .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        border-radius: 4px;
+        transition: width 0.3s ease;
+        width: 0%;
+      }
+
+      .progress-text {
+        text-align: center;
+        font-size: 14px;
+        font-weight: 600;
+        color: #667eea;
+      }
+
       @keyframes spin {
         to {
           transform: rotate(360deg);
@@ -554,6 +582,12 @@
         <div class="loader-header">
           <div class="loader-spinner"></div>
           <h3>Filling Form...</h3>
+          <div class="progress-container">
+            <div class="progress-bar-wrapper">
+              <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-text" id="progressText">0%</div>
+          </div>
         </div>
         <div class="loader-steps">
           <div class="loader-step" id="step1">
