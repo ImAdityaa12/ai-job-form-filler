@@ -347,9 +347,12 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
     // Show loader
     showLoader();
 
-    // Step 1: Detecting fields
+    // Step 1: Detecting fields (0-25%)
     updateLoaderStep(1, 'active');
-    await sleep(500);
+    updateProgress(10);
+    await sleep(300);
+    updateProgress(25);
+    await sleep(200);
 
     // Send message to content script
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -358,20 +361,37 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
                 hideLoader();
                 showStatus('✗ Error: ' + chrome.runtime.lastError.message, 'error');
             } else if (response && response.success) {
-                // Complete all steps
+                // Complete step 1 and move to step 2 (25-50%)
                 updateLoaderStep(1, 'completed');
-                await sleep(300);
+                updateProgress(30);
+                await sleep(200);
                 updateLoaderStep(2, 'active');
-                await sleep(800);
-                updateLoaderStep(2, 'completed');
-                await sleep(300);
-                updateLoaderStep(3, 'active');
-                await sleep(600);
-                updateLoaderStep(3, 'completed');
-                await sleep(300);
-                updateLoaderStep(4, 'active');
+                updateProgress(40);
                 await sleep(400);
+                updateProgress(50);
+                await sleep(400);
+
+                // Complete step 2 and move to step 3 (50-75%)
+                updateLoaderStep(2, 'completed');
+                updateProgress(55);
+                await sleep(200);
+                updateLoaderStep(3, 'active');
+                updateProgress(65);
+                await sleep(300);
+                updateProgress(75);
+                await sleep(300);
+
+                // Complete step 3 and move to step 4 (75-100%)
+                updateLoaderStep(3, 'completed');
+                updateProgress(80);
+                await sleep(200);
+                updateLoaderStep(4, 'active');
+                updateProgress(90);
+                await sleep(300);
+                updateProgress(95);
+                await sleep(200);
                 updateLoaderStep(4, 'completed');
+                updateProgress(100);
                 await sleep(500);
 
                 hideLoader();
@@ -387,11 +407,12 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
 function showLoader() {
     const overlay = document.getElementById('loaderOverlay');
     overlay.classList.add('active');
-    // Reset all steps
+    // Reset all steps and progress
     for (let i = 1; i <= 4; i++) {
         const step = document.getElementById(`step${i}`);
         step.classList.remove('active', 'completed');
     }
+    updateProgress(0);
 }
 
 function hideLoader() {
@@ -411,6 +432,15 @@ function updateLoaderStep(stepNumber, status) {
         }
         resolve();
     });
+}
+
+function updateProgress(percentage) {
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    if (progressBar && progressText) {
+        progressBar.style.width = percentage + '%';
+        progressText.textContent = percentage + '%';
+    }
 }
 
 function sleep(ms) {

@@ -9,19 +9,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // Function to show notification on page
-function showNotification(message, type = 'info') {
-    console.log('showNotification called:', message, type);
+function showNotification(message, type = 'info', progress = null) {
+    console.log('showNotification called:', message, type, progress);
 
     // Check if body exists
     if (!document.body) {
         console.error('document.body not found, waiting...');
-        setTimeout(() => showNotification(message, type), 100);
+        setTimeout(() => showNotification(message, type, progress), 100);
         return;
     }
 
     // Remove existing notification if any
     const existing = document.getElementById('ai-form-filler-notification');
     if (existing) {
+        // If it's a progress update, just update the existing notification
+        if (progress !== null) {
+            const progressBar = existing.querySelector('.notification-progress-bar');
+            const progressText = existing.querySelector('.notification-progress-text');
+            const messageSpan = existing.querySelector('.notification-message');
+            if (progressBar && progressText && messageSpan) {
+                progressBar.style.width = progress + '%';
+                progressText.textContent = progress + '%';
+                messageSpan.textContent = message;
+                return;
+            }
+        }
         console.log('Removing existing notification');
         existing.remove();
     }
@@ -44,20 +56,36 @@ function showNotification(message, type = 'info') {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
         font-size: 14px !important;
         font-weight: 600 !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 12px !important;
         animation: slideInRight 0.3s ease !important;
         max-width: 350px !important;
         pointer-events: auto !important;
+        min-width: 300px !important;
     `;
 
     // Add icon based on type
     const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : '⏳';
-    notification.innerHTML = `
-        <span style="font-size: 20px;">${icon}</span>
-        <span>${message}</span>
+
+    // Build notification content
+    let content = `
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: ${progress !== null ? '12px' : '0'};">
+            <span style="font-size: 20px;">${icon}</span>
+            <span class="notification-message">${message}</span>
+        </div>
     `;
+
+    // Add progress bar if progress is provided
+    if (progress !== null) {
+        content += `
+            <div style="margin-top: 8px;">
+                <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.3); border-radius: 3px; overflow: hidden;">
+                    <div class="notification-progress-bar" style="height: 100%; background: white; border-radius: 3px; transition: width 0.3s ease; width: ${progress}%;"></div>
+                </div>
+                <div class="notification-progress-text" style="text-align: center; font-size: 12px; margin-top: 6px; opacity: 0.9;">${progress}%</div>
+            </div>
+        `;
+    }
+
+    notification.innerHTML = content;
 
     // Add animation
     const style = document.createElement('style');
@@ -91,22 +119,25 @@ function showNotification(message, type = 'info') {
     document.body.appendChild(notification);
     console.log('Notification appended to body');
 
-    // Auto remove after delay (longer for errors)
-    const delay = type === 'error' ? 5000 : 3000;
-    setTimeout(() => {
-        notification.style.animation = 'slideOutRight 0.3s ease';
+    // Auto remove after delay (longer for errors, don't auto-remove for progress)
+    if (progress === null || progress >= 100) {
+        const delay = type === 'error' ? 5000 : 3000;
         setTimeout(() => {
-            if (notification.parentNode) {
-                notification.remove();
-                console.log('Notification removed');
-            }
-        }, 300);
-    }, delay);
+            notification.style.animation = 'slideOutRight 0.3s ease';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                    console.log('Notification removed');
+                }
+            }, 300);
+        }, delay);
+    }
 }
 
 async function fillFormWithAI() {
-    // Show starting notification
-    showNotification('🤖 AI Form Filler: Detecting fields...', 'info');
+    // Show starting notification with progress
+    showNotification('Detecting fields...', 'info', 0);
+    await sleep(300);
 
     const { apiKey, resumeText, resumeFileData, resumeFileName, resumeFileType } = await chrome.storage.local.get(['apiKey', 'resumeText', 'resumeFileData', 'resumeFileName', 'resumeFileType']);
 
@@ -123,8 +154,10 @@ async function fillFormWithAI() {
         throw new Error('No form fields found on this page');
     }
 
-    // Update notification
-    showNotification(`🔍 Found ${formFields.length} fields. Generating answers...`, 'info');
+    // Update progress - fields detected
+    showNotification(`Found ${formFields.length} fields`, 'info', 15);
+    await sleep(200);
+    showNotification(`Found ${formFields.length} fields`, 'info', 25);
 
     // Extract job context from the page
     const jobContext = extractJobContext();
@@ -143,26 +176,28 @@ async function fillFormWithAI() {
     console.log('=== GENERATING ALL ANSWERS IN ONE API CALL ===\n');
 
     try {
-        // Fill file upload fields first
-        if (fileInputs.length > 0 && resumeFileData) {
-            console.log('📎 Uploading resume to file fields...');
-            for (const fileInput of fileInputs) {
-                await fillFileInput(fileInput.element, resumeFileData, resumeFileName, resumeFileType);
-                console.log(`✅ Uploaded resume to: "${fileInput.label}"`);
-            }
-        }
-
         // Generate all text answers in one API call
         if (formFields.length > 0) {
+            showNotification('Generating answers with AI...', 'info', 30);
+            await sleep(200);
+            showNotification('Generating answers with AI...', 'info', 40);
+
             const answers = await generateAllAnswers(formFields, resumeText, apiKey, jobContext);
 
-            // Update notification
-            showNotification('📝 Filling form fields...', 'info');
+            // Update progress - answers generated
+            showNotification('Answers generated!', 'info', 50);
+            await sleep(300);
+            showNotification('Filling form fields...', 'info', 55);
 
             // Fill the fields with the answers
+            const totalFields = formFields.length;
             for (let i = 0; i < formFields.length; i++) {
                 const field = formFields[i];
                 let answer = answers[i];
+
+                // Calculate progress (55% to 75% for filling fields)
+                const fieldProgress = 55 + Math.floor((i / totalFields) * 20);
+                showNotification(`Filling field ${i + 1}/${totalFields}...`, 'info', fieldProgress);
 
                 // Apply character limit - use field's maxLength or default to 500 for text fields
                 const maxLength = field.maxLength ? parseInt(field.maxLength) :
@@ -190,7 +225,37 @@ async function fillFormWithAI() {
                 const delay = field.type === 'select2-search' ? 1000 : 200;
                 await sleep(delay);
             }
+
+            showNotification('Form fields filled!', 'info', 75);
+            await sleep(200);
         }
+
+        // Fill file upload fields
+        if (fileInputs.length > 0 && resumeFileData) {
+            showNotification('Uploading resume...', 'info', 80);
+            console.log('📎 Uploading resume to file fields...');
+
+            const totalFiles = fileInputs.length;
+            for (let i = 0; i < fileInputs.length; i++) {
+                const fileInput = fileInputs[i];
+                const fileProgress = 80 + Math.floor((i / totalFiles) * 15);
+                showNotification(`Uploading file ${i + 1}/${totalFiles}...`, 'info', fileProgress);
+
+                await fillFileInput(fileInput.element, resumeFileData, resumeFileName, resumeFileType);
+                console.log(`✅ Uploaded resume to: "${fileInput.label}"`);
+                await sleep(300);
+            }
+
+            showNotification('Resume uploaded!', 'info', 95);
+            await sleep(200);
+        } else {
+            showNotification('Finalizing...', 'info', 90);
+            await sleep(200);
+        }
+
+        // Complete
+        showNotification('Complete!', 'info', 100);
+        await sleep(500);
 
         console.log('\n=== FORM FILLING COMPLETE ===');
         showNotification('✓ Form filled successfully!', 'success');
