@@ -195,6 +195,14 @@ async function fillFormWithAI() {
                 const field = formFields[i];
                 let answer = answers[i];
 
+                // Hardcoded overrides for specific fields
+                const labelLower = (field.label || '').toLowerCase();
+                if (labelLower.includes('job title') || (labelLower === 'title')) {
+                    answer = 'Associate Fullstack Developer';
+                } else if (labelLower.includes('company') && !labelLower.includes('previous') && !labelLower.includes('former') && !labelLower.includes('last')) {
+                    answer = 'Edvanta Technologies';
+                }
+
                 // Calculate progress (55% to 75% for filling fields)
                 const fieldProgress = 55 + Math.floor((i / totalFields) * 20);
                 showNotification(`Filling field ${i + 1}/${totalFields}...`, 'info', fieldProgress);
