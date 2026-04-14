@@ -144,109 +144,11 @@ function fileToBase64(file) {
     });
 }
 
-// Function to extract text from PDF using Gemini AI
+// Function to extract text from PDF using AI
+// Note: Groq API does not support PDF/image inputs.
+// The PDF will be stored for file upload fields, but text must be pasted manually.
 async function extractTextFromPDFWithAI(base64Data, apiKey) {
-    // Remove the data URL prefix to get just the base64 data
-    const base64Content = base64Data.split(',')[1];
-
-    console.log('Extracting PDF text with Gemini...');
-
-    // Try multiple models in order
-    const models = [
-        'gemini-1.5-flash',
-        'gemini-1.5-pro',
-        'gemini-2.0-flash-exp'
-    ];
-
-    let lastError = null;
-
-    for (const model of models) {
-        try {
-            console.log(`Trying PDF extraction with model: ${model}`);
-
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [
-                            {
-                                text: "Extract all text content from this PDF document. Return ONLY the raw text content, no explanations, no formatting, no markdown. Include all personal information, contact details, work experience, education, and skills."
-                            },
-                            {
-                                inline_data: {
-                                    mime_type: "application/pdf",
-                                    data: base64Content
-                                }
-                            }
-                        ]
-                    }],
-                    generationConfig: {
-                        temperature: 0.1,
-                        maxOutputTokens: 8192
-                    }
-                })
-            });
-
-            console.log(`Model ${model} - Response status:`, response.status);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                let errorData;
-                try {
-                    errorData = JSON.parse(errorText);
-                } catch (e) {
-                    lastError = new Error(`API Error (${response.status}): ${errorText}`);
-                    console.log(`Model ${model} failed, trying next...`);
-                    continue;
-                }
-
-                if (response.status === 404) {
-                    console.log(`Model ${model} not found, trying next...`);
-                    lastError = new Error(`Model ${model} not available`);
-                    continue;
-                }
-
-                if (response.status === 429) {
-                    throw new Error('API quota exceeded. Please wait 10-15 minutes or get a new API key.');
-                }
-
-                lastError = new Error(errorData.error?.message || 'API request failed');
-                console.log(`Model ${model} error:`, lastError.message);
-                continue;
-            }
-
-            const data = await response.json();
-            console.log(`✓ Success with model ${model}`);
-
-            if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-                lastError = new Error('No text extracted from PDF. The PDF might be image-based or corrupted.');
-                console.log(`Model ${model} returned no content, trying next...`);
-                continue;
-            }
-
-            const extractedText = data.candidates[0].content.parts[0].text.trim();
-
-            if (!extractedText || extractedText.length < 10) {
-                lastError = new Error('Extracted text is too short. Please ensure the PDF contains readable text.');
-                console.log(`Model ${model} extracted insufficient text, trying next...`);
-                continue;
-            }
-
-            console.log('✓ PDF text extracted successfully!');
-            return extractedText;
-
-        } catch (error) {
-            console.error(`Error with model ${model}:`, error);
-            lastError = error;
-            if (error.message.includes('quota exceeded')) throw error;
-            continue;
-        }
-    }
-
-    // All models failed
-    console.error('All PDF extraction models failed:', lastError);
-    throw new Error(`PDF extraction failed with all models. ${lastError?.message || 'Unknown error'}. Please copy and paste your resume text manually.`);
+    throw new Error('PDF text extraction is not supported with Groq API. Please copy and paste your resume text manually into the text box below.');
 }
 
 // Function to read file as text

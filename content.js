@@ -676,21 +676,23 @@ Example of BAD (robotic) answer:
 
 Your JSON array:`;
 
-    const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
+    const models = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 'llama-3.1-8b-instant'];
     let lastError = null;
 
     for (const model of models) {
         try {
             console.log(`Trying model: ${model}`);
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+            const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.8,
-                        maxOutputTokens: 4096 // Increased for longer technical answers
-                    }
+                    model: model,
+                    messages: [{ role: 'user', content: prompt }],
+                    temperature: 0.8,
+                    max_tokens: 4096
                 })
             });
 
@@ -714,7 +716,11 @@ Your JSON array:`;
                 }
 
                 if (response.status === 429) {
-                    throw new Error(`Quota exceeded. Please wait 10-15 minutes or get a new API key from https://aistudio.google.com/app/apikey`);
+                    throw new Error(`Rate limit exceeded. Please wait a minute or get a new API key from https://console.groq.com/keys`);
+                }
+
+                if (response.status === 401) {
+                    throw new Error(`Invalid Groq API key. Get your free key from https://console.groq.com/keys`);
                 }
 
                 lastError = new Error(`API Error: ${errorData.error?.message || errorText}`);
@@ -724,13 +730,13 @@ Your JSON array:`;
 
             const data = await response.json();
 
-            if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+            if (!data.choices || !data.choices[0] || !data.choices[0].message) {
                 console.error('Unexpected API response:', data);
                 lastError = new Error('Invalid API response format');
                 continue;
             }
 
-            const answerText = data.candidates[0].content.parts[0].text.trim();
+            const answerText = data.choices[0].message.content.trim();
             console.log(`✓ Success with model ${model}`);
             console.log('Raw response:', answerText);
 
@@ -777,12 +783,12 @@ Your JSON array:`;
         } catch (error) {
             console.error(`Error with model ${model}:`, error);
             lastError = error;
-            if (error.message.includes('Quota exceeded')) throw error;
+            if (error.message.includes('Rate limit') || error.message.includes('Invalid Groq')) throw error;
             continue;
         }
     }
 
-    throw lastError || new Error('All models failed. Please check your API key and try again.');
+    throw lastError || new Error('All models failed. Please check your Groq API key at https://console.groq.com/keys');
 }
 
 function fillField(field, value) {
