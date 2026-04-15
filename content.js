@@ -723,7 +723,7 @@ async function callOpenAICompatibleAPI(prompt, apiKey, provider, model, expected
                 headers['X-Title'] = 'AI Job Form Filler';
             }
 
-            const response = await fetch(endpoint, {
+            const response = await bgFetch(endpoint, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({
@@ -782,7 +782,7 @@ async function callGeminiAPI(prompt, apiKey, model, expectedCount) {
 
     console.log(`[gemini] Trying model: ${modelId}`);
 
-    const response = await fetch(url, {
+    const response = await bgFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1045,6 +1045,29 @@ async function fillFileInput(element, base64Data, fileName, fileType) {
     } catch (error) {
         console.error('Error filling file input:', error);
     }
+}
+
+// Route all external API calls through the background service worker to bypass CORS
+function bgFetch(url, options) {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ action: 'proxyFetch', url, options }, (response) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+            if (response.error) {
+                reject(new Error(response.error));
+                return;
+            }
+            // Mimic the fetch Response interface (subset we need)
+            resolve({
+                ok: response.ok,
+                status: response.status,
+                text: () => Promise.resolve(response.text),
+                json: () => Promise.resolve(JSON.parse(response.text))
+            });
+        });
+    });
 }
 
 function sleep(ms) {

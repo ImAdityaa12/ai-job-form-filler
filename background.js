@@ -25,8 +25,18 @@ chrome.commands.onCommand.addListener((command) => {
     }
 });
 
-// Handle any background tasks if needed
+// Proxy fetch requests from content scripts to bypass CORS restrictions
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    // Add any background processing here if needed
+    if (request.action === 'proxyFetch') {
+        fetch(request.url, request.options)
+            .then(async (response) => {
+                const text = await response.text();
+                sendResponse({ ok: response.ok, status: response.status, text });
+            })
+            .catch((error) => {
+                sendResponse({ error: error.message });
+            });
+        return true; // Keep channel open for async response
+    }
     return true;
 });
