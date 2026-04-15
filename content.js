@@ -139,7 +139,17 @@ async function fillFormWithAI() {
     showNotification('Detecting fields...', 'info', 0);
     await sleep(300);
 
-    const { apiKey, resumeText, resumeFileData, resumeFileName, resumeFileType } = await chrome.storage.local.get(['apiKey', 'resumeText', 'resumeFileData', 'resumeFileName', 'resumeFileType']);
+    const stored = await chrome.storage.local.get(['apiKey', 'apiKeys', 'selectedProvider', 'selectedModel', 'resumeText', 'resumeFileData', 'resumeFileName', 'resumeFileType']);
+
+    const provider = stored.selectedProvider || 'groq';
+    const model = stored.selectedModel || null;
+    const apiKeys = stored.apiKeys || {};
+    if (!apiKeys.groq && stored.apiKey) apiKeys.groq = stored.apiKey;
+    const apiKey = apiKeys[provider];
+    const resumeText = stored.resumeText;
+    const resumeFileData = stored.resumeFileData;
+    const resumeFileName = stored.resumeFileName;
+    const resumeFileType = stored.resumeFileType;
 
     if (!apiKey || !resumeText) {
         showNotification('⚠️ Please save your API key and resume first', 'error');
@@ -182,7 +192,7 @@ async function fillFormWithAI() {
             await sleep(200);
             showNotification('Generating answers with AI...', 'info', 40);
 
-            const answers = await generateAllAnswers(formFields, resumeText, apiKey, jobContext);
+            const answers = await generateAllAnswers(formFields, resumeText, apiKey, jobContext, provider, model);
 
             // Update progress - answers generated
             showNotification('Answers generated!', 'info', 50);
@@ -564,10 +574,8 @@ function extractJobContext() {
     };
 }
 
-async function generateAllAnswers(formFields, resumeText, apiKey, jobContext) {
-    // Build a list of all questions with character limits
+async function generateAllAnswers(formFields, resumeText, apiKey, jobContext, provider, model) {
     const fieldsList = formFields.map((field, index) => {
-        // Default to 500 chars for text fields if no maxLength specified
         const maxLength = field.maxLength ||
             (field.type === 'textarea' || field.inputType === 'text') ? 500 : null;
         const limitText = maxLength ? ` (STRICT LIMIT: ${maxLength} characters)` : '';
@@ -661,7 +669,7 @@ ANSWER GUIDELINES:
    → DO NOT write "N/A" or "Not applicable"
    → Just leave it blank with ""
 
-6. FORMATTING:
+7. FORMATTING:
    → No markdown, bullet points, or special formatting
    → No headings or labels
    → Write in natural paragraph form
@@ -676,119 +684,157 @@ Example of BAD (robotic) answer:
 
 Your JSON array:`;
 
-    const models = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 'llama-3.1-8b-instant'];
+    const resolvedProvider = provider || 'groq';
+
+    if (resolvedProvider === 'gemini') {
+        return await callGeminiAPI(prompt, apiKey, model, formFields.length);
+    } else {
+        return await callOpenAICompatibleAPI(prompt, apiKey, resolvedProvider, model, formFields.length);
+    }
+}
+
+async function callOpenAICompatibleAPI(prompt, apiKey, provider, model, expectedCount) {
+    const endpoints = {
+        groq: 'https://api.groq.com/openai/v1/chat/completions',
+        nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        openrouter: 'https://openrouter.ai/api/v1/chat/completions'
+    };
+
+    const defaultModels = {
+        groq: ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 'llama-3.1-8b-instant'],
+        nvidia: ['meta/llama-3.3-70b-instruct', 'meta/llama-3.1-70b-instruct', 'mistralai/mistral-7b-instruct-v0.3'],
+        openrouter: ['google/gemini-2.0-flash-exp:free', 'meta-llama/llama-3.1-8b-instruct:free', 'mistralai/mistral-7b-instruct:free']
+    };
+
+    const endpoint = endpoints[provider] || endpoints.groq;
+    const modelsToTry = model ? [model] : (defaultModels[provider] || defaultModels.groq);
     let lastError = null;
 
-    for (const model of models) {
+    for (const currentModel of modelsToTry) {
         try {
-            console.log(`Trying model: ${model}`);
-            const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            console.log(`[${provider}] Trying model: ${currentModel}`);
+
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            };
+            if (provider === 'openrouter') {
+                headers['HTTP-Referer'] = 'https://github.com';
+                headers['X-Title'] = 'AI Job Form Filler';
+            }
+
+            const response = await fetch(endpoint, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`
-                },
+                headers,
                 body: JSON.stringify({
-                    model: model,
+                    model: currentModel,
                     messages: [{ role: 'user', content: prompt }],
                     temperature: 0.8,
                     max_tokens: 4096
                 })
             });
 
-            console.log(`Model ${model} - Response status:`, response.status);
+            console.log(`[${provider}] ${currentModel} - status:`, response.status);
 
             if (!response.ok) {
                 const errorText = await response.text();
                 let errorData;
-                try {
-                    errorData = JSON.parse(errorText);
-                } catch (e) {
-                    lastError = new Error(`API Error (${response.status}): ${errorText}`);
-                    console.log(`Model ${model} failed, trying next...`);
-                    continue;
-                }
+                try { errorData = JSON.parse(errorText); } catch (e) {}
 
                 if (response.status === 404) {
-                    console.log(`Model ${model} not found, trying next...`);
-                    lastError = new Error(`Model ${model} not found`);
+                    lastError = new Error(`Model ${currentModel} not found`);
                     continue;
                 }
-
                 if (response.status === 429) {
-                    throw new Error(`Rate limit exceeded. Please wait a minute or get a new API key from https://console.groq.com/keys`);
+                    throw new Error(`Rate limit exceeded for ${provider}. Please wait or switch to a different model.`);
                 }
-
                 if (response.status === 401) {
-                    throw new Error(`Invalid Groq API key. Get your free key from https://console.groq.com/keys`);
+                    throw new Error(`Invalid API key for ${provider}. Please check your key in the extension settings.`);
                 }
 
-                lastError = new Error(`API Error: ${errorData.error?.message || errorText}`);
-                console.log(`Model ${model} error:`, lastError.message);
+                lastError = new Error(`API Error: ${errorData?.error?.message || errorText}`);
                 continue;
             }
 
             const data = await response.json();
-
-            if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-                console.error('Unexpected API response:', data);
+            if (!data.choices?.[0]?.message) {
                 lastError = new Error('Invalid API response format');
                 continue;
             }
 
             const answerText = data.choices[0].message.content.trim();
-            console.log(`✓ Success with model ${model}`);
-            console.log('Raw response:', answerText);
-
-            // Parse the JSON array from the response
-            try {
-                // Try to extract JSON array from the response
-                const jsonMatch = answerText.match(/\[[\s\S]*\]/);
-                if (!jsonMatch) {
-                    throw new Error('No JSON array found in response');
-                }
-
-                const answers = JSON.parse(jsonMatch[0]);
-
-                if (!Array.isArray(answers)) {
-                    throw new Error('Response is not an array');
-                }
-
-                if (answers.length !== formFields.length) {
-                    console.warn(`Expected ${formFields.length} answers, got ${answers.length}. Padding with empty strings...`);
-                    // Pad with empty strings if needed
-                    while (answers.length < formFields.length) {
-                        answers.push('');
-                    }
-                }
-
-                return answers;
-            } catch (parseError) {
-                console.error('Failed to parse JSON response:', parseError);
-                console.log('Attempting to split by lines as fallback...');
-
-                // Fallback: split by lines and clean up
-                const lines = answerText.split('\n').filter(line => line.trim() && !line.trim().startsWith('[') && !line.trim().startsWith(']'));
-                const answers = lines.map(line => line.replace(/^["'\d\.\-\s]+/, '').replace(/["',]+$/, '').trim());
-
-                if (answers.length < formFields.length) {
-                    while (answers.length < formFields.length) {
-                        answers.push('');
-                    }
-                }
-
-                return answers.slice(0, formFields.length);
-            }
+            console.log(`✓ [${provider}] Success with ${currentModel}`);
+            return parseAnswerArray(answerText, expectedCount);
 
         } catch (error) {
-            console.error(`Error with model ${model}:`, error);
             lastError = error;
-            if (error.message.includes('Rate limit') || error.message.includes('Invalid Groq')) throw error;
+            if (error.message.includes('Rate limit') || error.message.includes('Invalid API key')) throw error;
             continue;
         }
     }
 
-    throw lastError || new Error('All models failed. Please check your Groq API key at https://console.groq.com/keys');
+    throw lastError || new Error(`All ${provider} models failed. Please check your API key.`);
+}
+
+async function callGeminiAPI(prompt, apiKey, model, expectedCount) {
+    const modelId = model || 'gemini-2.0-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+
+    console.log(`[gemini] Trying model: ${modelId}`);
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.8, maxOutputTokens: 4096 }
+        })
+    });
+
+    console.log(`[gemini] ${modelId} - status:`, response.status);
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try { errorData = JSON.parse(errorText); } catch (e) {}
+
+        if (response.status === 429) throw new Error('Gemini rate limit exceeded. Try a different model or wait.');
+        if (response.status === 403) throw new Error('Invalid Gemini API key. Get yours from https://aistudio.google.com/app/apikey');
+        throw new Error(`Gemini API Error (${response.status}): ${errorData?.error?.message || errorText}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error('Invalid Gemini API response');
+    }
+
+    const answerText = data.candidates[0].content.parts[0].text.trim();
+    console.log(`✓ [gemini] Success with ${modelId}`);
+    return parseAnswerArray(answerText, expectedCount);
+}
+
+function parseAnswerArray(answerText, expectedCount) {
+    console.log('Raw response:', answerText);
+    try {
+        const jsonMatch = answerText.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) throw new Error('No JSON array found in response');
+
+        const answers = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(answers)) throw new Error('Response is not an array');
+
+        if (answers.length !== expectedCount) {
+            console.warn(`Expected ${expectedCount} answers, got ${answers.length}. Padding...`);
+        }
+        while (answers.length < expectedCount) answers.push('');
+        return answers;
+    } catch (parseError) {
+        console.error('Failed to parse JSON, falling back to line split:', parseError);
+        const lines = answerText.split('\n').filter(line => line.trim() && !line.trim().startsWith('[') && !line.trim().startsWith(']'));
+        const answers = lines.map(line => line.replace(/^["'\d\.\-\s]+/, '').replace(/["',]+$/, '').trim());
+        while (answers.length < expectedCount) answers.push('');
+        return answers.slice(0, expectedCount);
+    }
 }
 
 function fillField(field, value) {

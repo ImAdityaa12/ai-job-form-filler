@@ -1,16 +1,102 @@
+const PROVIDERS = {
+    groq: {
+        consoleUrl: 'https://console.groq.com/keys',
+        consoleText: 'Groq Console',
+        apiKeyPlaceholder: 'Enter your Groq API key (gsk_...)',
+        models: [
+            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B ⭐' },
+            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B' },
+            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (Faster)' },
+            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
+        ]
+    },
+    nvidia: {
+        consoleUrl: 'https://build.nvidia.com/',
+        consoleText: 'NVIDIA Build Console',
+        apiKeyPlaceholder: 'Enter your NVIDIA API key (nvapi-...)',
+        models: [
+            { id: 'meta/llama-3.3-70b-instruct', name: 'Llama 3.3 70B ⭐' },
+            { id: 'meta/llama-3.1-70b-instruct', name: 'Llama 3.1 70B' },
+            { id: 'mistralai/mixtral-8x22b-instruct-v0.1', name: 'Mixtral 8x22B' },
+            { id: 'mistralai/mistral-7b-instruct-v0.3', name: 'Mistral 7B' },
+        ]
+    },
+    gemini: {
+        consoleUrl: 'https://aistudio.google.com/app/apikey',
+        consoleText: 'Google AI Studio',
+        apiKeyPlaceholder: 'Enter your Gemini API key (AIza...)',
+        models: [
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash ⭐' },
+            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+            { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B (Faster)' },
+        ]
+    },
+    openrouter: {
+        consoleUrl: 'https://openrouter.ai/keys',
+        consoleText: 'OpenRouter',
+        apiKeyPlaceholder: 'Enter your OpenRouter API key (sk-or-...)',
+        models: [
+            { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free) ⭐' },
+            { id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Free)' },
+            { id: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Free)' },
+            { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free)' },
+        ]
+    }
+};
+
+function updateProviderUI(provider, savedModel) {
+    const config = PROVIDERS[provider];
+    if (!config) return;
+
+    const modelSelect = document.getElementById('modelSelect');
+    const apiKeyInput = document.getElementById('apiKey');
+    const apiKeyLink = document.getElementById('apiKeyLink');
+
+    // Populate model dropdown
+    modelSelect.innerHTML = '';
+    config.models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.textContent = model.name;
+        modelSelect.appendChild(option);
+    });
+
+    // Restore saved model if it belongs to this provider
+    if (savedModel) {
+        const exists = config.models.some(m => m.id === savedModel);
+        if (exists) modelSelect.value = savedModel;
+    }
+
+    // Update API key UI
+    apiKeyInput.placeholder = config.apiKeyPlaceholder;
+    apiKeyLink.href = config.consoleUrl;
+    apiKeyLink.textContent = config.consoleText;
+}
+
 // Load saved data when popup opens
 document.addEventListener('DOMContentLoaded', () => {
-    chrome.storage.local.get(['apiKey', 'resumeText', 'additionalInfo', 'resumeFileName', 'resumeFileData'], (result) => {
-        if (result.apiKey) {
-            document.getElementById('apiKey').value = result.apiKey;
+    const providerSelect = document.getElementById('providerSelect');
+    const apiKeyInput = document.getElementById('apiKey');
+
+    chrome.storage.local.get(['selectedProvider', 'selectedModel', 'apiKeys', 'apiKey', 'resumeText', 'additionalInfo', 'resumeFileName', 'resumeFileData'], (result) => {
+        const provider = result.selectedProvider || 'groq';
+        providerSelect.value = provider;
+
+        const apiKeys = result.apiKeys || {};
+        // Migrate legacy apiKey to groq slot
+        if (!apiKeys.groq && result.apiKey) {
+            apiKeys.groq = result.apiKey;
         }
 
-        // Load resume text (without additional info for display)
+        updateProviderUI(provider, result.selectedModel);
+
+        if (apiKeys[provider]) {
+            apiKeyInput.value = apiKeys[provider];
+        }
+
         if (result.resumeText) {
-            // If there's additional info, extract just the resume part
             let displayText = result.resumeText;
             if (result.additionalInfo && result.resumeText.includes('Additional Information:')) {
-                // Extract just the resume part before "Additional Information:"
                 displayText = result.resumeText.split('\n\nAdditional Information:')[0];
             }
             document.getElementById('resume').value = displayText;
@@ -30,6 +116,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result.resumeFileData && result.resumeText) {
             showStatus('✓ Resume loaded from storage', 'success');
         }
+    });
+
+    // Switch provider: update model list and load saved key for that provider
+    providerSelect.addEventListener('change', () => {
+        const provider = providerSelect.value;
+        updateProviderUI(provider, null);
+        chrome.storage.local.get(['apiKeys'], (result) => {
+            const apiKeys = result.apiKeys || {};
+            apiKeyInput.value = apiKeys[provider] || '';
+        });
     });
 });
 
@@ -51,58 +147,38 @@ document.getElementById('resumeFile').addEventListener('change', async (event) =
     uploadArea.classList.add('has-file');
 
     try {
-        // Store the file as base64 for later use
         const base64File = await fileToBase64(file);
 
-        // Extract text based on file type
         let extractedText = '';
         if (file.type === 'application/pdf') {
-            // Check if user wants to extract or just upload
             const currentText = document.getElementById('resume').value.trim();
 
             if (currentText) {
-                // User already has text, just store the PDF for file uploads
                 showStatus('✓ PDF stored for file uploads. Using your existing resume text.', 'success');
             } else {
-                // Try to extract text
                 showStatus('📄 Extracting text from PDF using AI...', 'success');
 
-                // Get API key
-                const result = await chrome.storage.local.get(['apiKey']);
-                if (!result.apiKey) {
-                    showStatus('⚠️ No API key found. Please paste your resume text manually or add API key to extract from PDF.', 'error');
-                    fileNameDiv.innerHTML = `<span style="color: #f59e0b;">⚠️</span> ${fileName} (paste text manually)`;
+                const result = await chrome.storage.local.get(['apiKeys', 'apiKey', 'selectedProvider']);
+                const provider = result.selectedProvider || 'groq';
+                const apiKeys = result.apiKeys || {};
+                if (!apiKeys.groq && result.apiKey) apiKeys.groq = result.apiKey;
 
-                    // Save file but don't extract
-                    chrome.storage.local.set({
-                        resumeFileData: base64File,
-                        resumeFileName: fileName,
-                        resumeFileType: file.type
-                    });
+                if (!apiKeys[provider]) {
+                    showStatus('⚠️ No API key found. Please paste your resume text manually or add an API key to extract from PDF.', 'error');
+                    fileNameDiv.innerHTML = `<span style="color: #f59e0b;">⚠️</span> ${fileName} (paste text manually)`;
+                    chrome.storage.local.set({ resumeFileData: base64File, resumeFileName: fileName, resumeFileType: file.type });
                     return;
                 }
 
                 try {
-                    extractedText = await extractTextFromPDFWithAI(base64File, result.apiKey);
+                    extractedText = await extractTextFromPDFWithAI(base64File, apiKeys[provider]);
                     document.getElementById('resume').value = extractedText;
                     showStatus('✓ PDF text extracted successfully!', 'success');
                 } catch (pdfError) {
                     console.error('PDF extraction failed:', pdfError);
-
-                    if (pdfError.message.includes('quota')) {
-                        showStatus(`⚠️ API quota exceeded. PDF saved for file uploads. Please paste your resume text manually below.`, 'error');
-                    } else {
-                        showStatus(`⚠️ ${pdfError.message}. PDF saved for file uploads. Please paste text manually.`, 'error');
-                    }
-
+                    showStatus(`⚠️ ${pdfError.message}. PDF saved for file uploads. Please paste text manually.`, 'error');
                     fileNameDiv.innerHTML = `<span style="color: #f59e0b;">⚠️</span> ${fileName} (paste text manually)`;
-
-                    // Save file even if extraction failed
-                    chrome.storage.local.set({
-                        resumeFileData: base64File,
-                        resumeFileName: fileName,
-                        resumeFileType: file.type
-                    });
+                    chrome.storage.local.set({ resumeFileData: base64File, resumeFileName: fileName, resumeFileType: file.type });
                     return;
                 }
             }
@@ -117,7 +193,6 @@ document.getElementById('resumeFile').addEventListener('change', async (event) =
             return;
         }
 
-        // Save file data and extracted text to storage
         chrome.storage.local.set({
             resumeFileData: base64File,
             resumeFileName: fileName,
@@ -134,68 +209,58 @@ document.getElementById('resumeFile').addEventListener('change', async (event) =
     }
 });
 
-// Function to convert file to base64
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = (e) => reject(new Error('Failed to read file'));
+        reader.onerror = () => reject(new Error('Failed to read file'));
         reader.readAsDataURL(file);
     });
 }
 
-// Function to extract text from PDF using AI
-// Note: Groq API does not support PDF/image inputs.
-// The PDF will be stored for file upload fields, but text must be pasted manually.
 async function extractTextFromPDFWithAI(base64Data, apiKey) {
-    throw new Error('PDF text extraction is not supported with Groq API. Please copy and paste your resume text manually into the text box below.');
+    throw new Error('PDF text extraction is not supported. Please copy and paste your resume text manually into the text box below.');
 }
 
-// Function to read file as text
 function readFileAsText(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-
-        reader.onload = (e) => {
-            resolve(e.target.result);
-        };
-
-        reader.onerror = (e) => {
-            reject(new Error('Failed to read file'));
-        };
-
-        // Check file type
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('Failed to read file'));
         if (file.type === 'application/pdf') {
             showStatus('PDF files need to be converted to text first. Please copy and paste the text.', 'error');
             reject(new Error('PDF files are not supported. Please paste text instead.'));
             return;
         }
-
         reader.readAsText(file);
     });
 }
 
 // Save settings
 document.getElementById('saveBtn').addEventListener('click', () => {
+    const provider = document.getElementById('providerSelect').value;
+    const model = document.getElementById('modelSelect').value;
     const apiKey = document.getElementById('apiKey').value.trim();
     const resumeText = document.getElementById('resume').value.trim();
     const additionalInfo = document.getElementById('additionalInfo').value.trim();
 
-    // Combine resume text with additional info for AI use
     const fullResumeText = additionalInfo
         ? `${resumeText}\n\nAdditional Information:\n${additionalInfo}`
         : resumeText;
 
-    // Get existing file data to preserve it
-    chrome.storage.local.get(['resumeFileData', 'resumeFileName', 'resumeFileType'], (result) => {
-        // Save all data including file info
+    chrome.storage.local.get(['apiKeys', 'resumeFileData', 'resumeFileName', 'resumeFileType'], (result) => {
+        const apiKeys = result.apiKeys || {};
+        apiKeys[provider] = apiKey;
+
         const dataToSave = {
-            apiKey,
+            selectedProvider: provider,
+            selectedModel: model,
+            apiKeys,
+            apiKey, // backwards compat for groq
             resumeText: fullResumeText,
             additionalInfo
         };
 
-        // Preserve file data if it exists
         if (result.resumeFileData) {
             dataToSave.resumeFileData = result.resumeFileData;
             dataToSave.resumeFileName = result.resumeFileName;
@@ -207,7 +272,6 @@ document.getElementById('saveBtn').addEventListener('click', () => {
                 showStatus('✗ Error saving: ' + chrome.runtime.lastError.message, 'error');
             } else {
                 showStatus('✓ Settings saved successfully!', 'success');
-                console.log('Saved to storage:', dataToSave);
             }
         });
     });
@@ -215,55 +279,54 @@ document.getElementById('saveBtn').addEventListener('click', () => {
 
 // Clear all data button
 document.getElementById('clearBtn').addEventListener('click', () => {
-    if (confirm('Are you sure you want to clear all saved data? This will delete your API key, resume, and all settings.')) {
+    if (confirm('Are you sure you want to clear all saved data? This will delete your API keys, resume, and all settings.')) {
         chrome.storage.local.clear(() => {
-            // Clear all input fields
             document.getElementById('apiKey').value = '';
             document.getElementById('resume').value = '';
             document.getElementById('additionalInfo').value = '';
 
-            // Clear file upload display
             const uploadArea = document.getElementById('uploadArea');
             const fileNameDiv = document.getElementById('fileName');
             fileNameDiv.innerHTML = '';
             uploadArea.classList.remove('has-file');
-
-            // Reset file input
             document.getElementById('resumeFile').value = '';
 
+            // Reset provider/model to defaults
+            document.getElementById('providerSelect').value = 'groq';
+            updateProviderUI('groq', null);
+
             showStatus('✓ All data cleared successfully!', 'success');
-            console.log('Storage cleared');
         });
     }
 });
 
 // Fill form automatically
 document.getElementById('fillBtn').addEventListener('click', async () => {
-    const result = await chrome.storage.local.get(['apiKey', 'resumeText']);
+    const result = await chrome.storage.local.get(['selectedProvider', 'apiKeys', 'apiKey', 'resumeText']);
 
-    if (!result.apiKey || !result.resumeText) {
+    const provider = result.selectedProvider || 'groq';
+    const apiKeys = result.apiKeys || {};
+    if (!apiKeys.groq && result.apiKey) apiKeys.groq = result.apiKey;
+
+    if (!apiKeys[provider] || !result.resumeText) {
         showStatus('⚠️ Please save your API key and resume first', 'error');
         return;
     }
 
-    // Show loader
     showLoader();
 
-    // Step 1: Detecting fields (0-25%)
     updateLoaderStep(1, 'active');
     updateProgress(10);
     await sleep(300);
     updateProgress(25);
     await sleep(200);
 
-    // Send message to content script
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         chrome.tabs.sendMessage(tabs[0].id, { action: 'fillForm' }, async (response) => {
             if (chrome.runtime.lastError) {
                 hideLoader();
                 showStatus('✗ Error: ' + chrome.runtime.lastError.message, 'error');
             } else if (response && response.success) {
-                // Complete step 1 and move to step 2 (25-50%)
                 updateLoaderStep(1, 'completed');
                 updateProgress(30);
                 await sleep(200);
@@ -273,7 +336,6 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
                 updateProgress(50);
                 await sleep(400);
 
-                // Complete step 2 and move to step 3 (50-75%)
                 updateLoaderStep(2, 'completed');
                 updateProgress(55);
                 await sleep(200);
@@ -283,7 +345,6 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
                 updateProgress(75);
                 await sleep(300);
 
-                // Complete step 3 and move to step 4 (75-100%)
                 updateLoaderStep(3, 'completed');
                 updateProgress(80);
                 await sleep(200);
@@ -309,17 +370,14 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
 function showLoader() {
     const overlay = document.getElementById('loaderOverlay');
     overlay.classList.add('active');
-    // Reset all steps and progress
     for (let i = 1; i <= 4; i++) {
-        const step = document.getElementById(`step${i}`);
-        step.classList.remove('active', 'completed');
+        document.getElementById(`step${i}`).classList.remove('active', 'completed');
     }
     updateProgress(0);
 }
 
 function hideLoader() {
-    const overlay = document.getElementById('loaderOverlay');
-    overlay.classList.remove('active');
+    document.getElementById('loaderOverlay').classList.remove('active');
 }
 
 function updateLoaderStep(stepNumber, status) {

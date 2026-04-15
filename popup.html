@@ -69,6 +69,7 @@
         font-size: 16px;
       }
 
+      select,
       input[type="password"],
       textarea {
         width: 100%;
@@ -79,8 +80,19 @@
         font-size: 13px;
         transition: all 0.2s;
         background: #f9fafb;
+        color: #374151;
       }
 
+      select {
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        cursor: pointer;
+      }
+
+      select:focus,
       input[type="password"]:focus,
       textarea:focus {
         outline: none;
@@ -478,17 +490,41 @@
       <div class="content">
         <div class="section">
           <label>
+            <span class="icon">🤖</span>
+            AI Provider
+          </label>
+          <select id="providerSelect">
+            <option value="groq">Groq (Free · Fastest)</option>
+            <option value="nvidia">NVIDIA NIM (Free)</option>
+            <option value="gemini">Google Gemini (Free)</option>
+            <option value="openrouter">OpenRouter (Free Models)</option>
+          </select>
+        </div>
+
+        <div class="section">
+          <label>
+            <span class="icon">🧠</span>
+            Model
+          </label>
+          <select id="modelSelect">
+            <!-- Populated by JS -->
+          </select>
+        </div>
+
+        <div class="section">
+          <label>
             <span class="icon">🔑</span>
-            Groq API Key
+            API Key
           </label>
           <input
             type="password"
             id="apiKey"
-            placeholder="Enter your Groq API key"
+            placeholder="Enter your API key"
           />
           <small
-            >Get your free API key from
+            >Get your free key from
             <a
+              id="apiKeyLink"
               href="https://console.groq.com/keys"
               target="_blank"
               style="color: #667eea"
