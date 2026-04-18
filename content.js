@@ -520,11 +520,13 @@ function getFieldLabel(element) {
         label = element.placeholder.trim();
     }
 
+    // Check for label[for=id] association
     if (!label && element.id) {
         const labelElement = document.querySelector(`label[for="${element.id}"]`);
         if (labelElement) label = labelElement.textContent.trim();
     }
 
+    // Check parent <label> element
     if (!label) {
         const parentLabel = element.closest('label');
         if (parentLabel) {
@@ -535,23 +537,71 @@ function getFieldLabel(element) {
         }
     }
 
-    // Look for label in parent div structure (common in Bootstrap forms)
+    // Look for label in parent div structure (common in Bootstrap and other frameworks)
     if (!label) {
-        const parentDiv = element.closest('.col-md-4, .col-xs-12, .form-group, .field-wrapper');
+        const parentDiv = element.closest('.col-md-4, .col-xs-12, .form-group, .field-wrapper, .form-field, .wpcf7-form-control-wrap');
         if (parentDiv) {
             const labelElement = parentDiv.querySelector('label');
             if (labelElement) label = labelElement.textContent.trim();
         }
     }
 
+    // Check previous sibling label
     if (!label && element.previousElementSibling) {
         const prev = element.previousElementSibling;
         if (prev.tagName === 'LABEL') label = prev.textContent.trim();
     }
 
+    // Check aria-label
     if (!label && element.getAttribute('aria-label')) label = element.getAttribute('aria-label').trim();
+
+    // Walk up the DOM tree looking for nearby text labels (handles WPCF7, custom forms, etc.)
+    if (!label) {
+        let current = element;
+        for (let depth = 0; depth < 6 && !label; depth++) {
+            current = current.parentElement;
+            if (!current || current === document.body || current === document.documentElement) break;
+
+            // Check previous siblings for text-bearing elements
+            let sibling = current.previousElementSibling;
+            while (sibling && !label) {
+                const tagName = sibling.tagName;
+                if (['P', 'LABEL', 'SPAN', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TD', 'TH', 'DT', 'LEGEND'].includes(tagName)) {
+                    // Skip if sibling contains form inputs (it's another field, not our label)
+                    if (!sibling.querySelector('input, textarea, select')) {
+                        const text = sibling.textContent.trim();
+                        if (text && text.length > 0 && text.length < 100) {
+                            label = text;
+                            break;
+                        }
+                    }
+                }
+                sibling = sibling.previousElementSibling;
+            }
+
+            // Check for label/text children within current parent (excluding our input's branch)
+            if (!label) {
+                const children = current.children;
+                for (const child of children) {
+                    if (child.contains(element)) continue;
+                    if (child.querySelector('input, textarea, select')) continue;
+                    const tagName = child.tagName;
+                    if (['P', 'LABEL', 'SPAN', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LEGEND'].includes(tagName)) {
+                        const text = child.textContent.trim();
+                        if (text && text.length > 0 && text.length < 100) {
+                            label = text;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: name attribute
     if (!label && element.name) label = element.name.replace(/[_-]/g, ' ').trim();
 
+    // Clean up label text
     if (label) {
         label = label.replace(/\*/g, '').replace(/:/g, '').replace(/\s+/g, ' ')
             .replace(/^\s+|\s+$/g, '').replace(/\(required\)/gi, '').replace(/\(optional\)/gi, '');
@@ -578,11 +628,47 @@ async function generateAllAnswers(formFields, resumeText, apiKey, jobContext, pr
     const fieldsList = formFields.map((field, index) => {
         const maxLength = field.maxLength ||
             (field.type === 'textarea' || field.inputType === 'text') ? 500 : null;
-        const limitText = maxLength ? ` (STRICT LIMIT: ${maxLength} characters)` : '';
-        return `${index + 1}. ${field.label}${limitText}`;
+        const limitText = maxLength ? `, max ${maxLength} chars` : '';
+
+        let typeInfo = '';
+        if (field.type === 'select' || field.type === 'select2' || field.type === 'select2-search') {
+            const options = [];
+            const selectEl = field.selectElement || field.element;
+            if (selectEl && selectEl.tagName === 'SELECT') {
+                Array.from(selectEl.options).forEach(opt => {
+                    const text = opt.text.trim();
+                    if (text && opt.value !== '') options.push(text);
+                });
+            }
+            typeInfo = options.length > 0
+                ? ` [dropdown - pick from: ${options.slice(0, 20).join(', ')}]`
+                : ` [dropdown${limitText}]`;
+        } else if (field.type === 'radio') {
+            const opts = field.options.map(o => o.label).join(', ');
+            typeInfo = ` [radio - pick one: ${opts}]`;
+        } else if (field.inputType === 'email') {
+            typeInfo = ' [email]';
+        } else if (field.inputType === 'tel') {
+            typeInfo = ' [phone number]';
+        } else if (field.inputType === 'url') {
+            typeInfo = ' [URL]';
+        } else if (field.inputType === 'number') {
+            typeInfo = ' [number only]';
+        } else if (field.type === 'textarea') {
+            typeInfo = ` [textarea${limitText}]`;
+        } else {
+            typeInfo = ` [text${limitText}]`;
+        }
+
+        return `${index + 1}. ${field.label}${typeInfo}`;
     }).join('\n');
 
+    const today = new Date();
+    const currentDate = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
     const prompt = `You are an experienced software engineer filling a job application form. Write answers that sound natural, conversational, and human - NOT like AI-generated text.
+
+TODAY'S DATE: ${currentDate}
 
 PAGE CONTENT (Job Posting):
 ${jobContext.pageContent}
@@ -622,65 +708,75 @@ CHARACTER LIMITS - ABSOLUTELY CRITICAL - READ THIS CAREFULLY:
 - DO NOT exceed the character limit - answers will be rejected if too long
 
 WRITE LIKE A REAL PERSON, NOT AN AI:
-- Use casual, conversational language
-- Include personal touches ("I've found that...", "In my experience...", "One thing I learned...")
-- Vary sentence structure (mix short and long sentences)
-- Use contractions (I've, I'd, it's, that's)
-- Be specific with examples, not generic
-- Show personality while staying professional
+- Short, crisp answers. No unnecessary words.
+- Use contractions (I've, I'd, it's)
+- Be specific, not generic
 - Avoid corporate jargon and buzzwords
-- Don't sound overly formal or robotic
 
-ANSWER GUIDELINES:
+CRITICAL RULE - MATCH ANSWER TO FIELD TYPE:
+Each field above has a type annotation in brackets. You MUST follow the type:
 
-1. For TECHNICAL QUESTIONS (how do you approach X, describe your experience with Y):
-   → Write 3-5 sentences in a conversational tone
-   → Start with phrases like "I usually...", "I've found...", "My approach is..."
-   → Reference specific technologies/projects from the resume
-   → Share a brief example or insight
-   → NEVER say "N/A" - always provide a thoughtful answer
-   → Sound like you're explaining to a colleague, not writing a textbook
+GOLDEN RULE: KEEP ANSWERS SHORT AND CRISP. No long paragraphs. No fluff.
 
-2. For SIMPLE FIELDS (name, email, phone, LinkedIn):
-   → Extract the exact value from the resume
+1. [text] fields with labels like "First Name", "Last Name", "Email", "Phone", "City", "LinkedIn", etc.:
+   → SIMPLE DATA FIELDS - return ONLY the exact value (e.g., "John", "Doe", "john@email.com")
+   → Do NOT write sentences. Just the raw value.
    → If not in resume, return empty string ""
 
-3. For MOTIVATION/WHY questions:
-   → Write 3-5 sentences explaining genuine interest
-   → Be enthusiastic but authentic
-   → Reference specific aspects of the role/company if mentioned
-   → Show personality
+2. [email] fields → Just the email address (e.g., "john@email.com")
 
-4. For SELECT/DROPDOWN fields (usually single word answers like "Yes", "No", country names, etc.):
-   → Provide a simple, direct answer that would match a dropdown option
-   → Examples: "Yes", "No", "India", "Bachelor's", "5-10 years", etc.
-   → If not applicable, return empty string ""
+3. [phone number] fields → Just the phone number (e.g., "+1234567890")
 
-5. For NUMERIC FIELDS (salary, notice period, years of experience):
-   → CRITICAL: Return ONLY the number, NO text, NO currency symbols, NO units
-   → Examples: "50000" (not "$50,000" or "50000 USD")
-   → Examples: "30" (not "30 days" or "1 month")
-   → Examples: "5" (not "5 years")
-   → If the field label contains "salary", "notice", "period", "years", return ONLY digits
-   → If not in resume, estimate a reasonable number based on experience level
+4. [URL] fields → Just the URL (e.g., "https://linkedin.com/in/johndoe")
 
-6. If information is NOT AVAILABLE or NOT APPLICABLE:
-   → Return empty string ""
-   → DO NOT write "N/A" or "Not applicable"
-   → Just leave it blank with ""
+5. [number only] fields (salary, notice period, years of experience):
+   → Return ONLY digits, NO text, NO units
+   → Examples: "50000", "30", "5"
 
-7. FORMATTING:
+6. [dropdown] fields → Pick the EXACT option text from the listed options.
+
+7. [radio] fields → Pick one of the listed options. Return the EXACT option text.
+
+8. For EXPERIENCE fields (e.g., "years of experience", "total experience", "experience"):
+   → Return SHORT answer like "2 years" or "3.5 years"
+   → Calculate from resume dates. Do NOT write sentences or paragraphs.
+
+9. For NOTICE PERIOD fields → Short answer like "30 days", "Immediate", "2 weeks"
+
+10. For SALARY/CTC fields → Just the number like "800000" or a short answer like "8 LPA"
+
+11. [textarea] fields → Write 2-3 SHORT sentences max. Be concise and direct.
+   → Reference specific tech/projects from resume
+   → No fluff, no filler words
+
+12. [text] fields with QUESTION-like labels (e.g., "Why do you want this job?"):
+   → 1-2 short sentences max. Get to the point quickly.
+
+13. For SCHEDULING/DATE questions (e.g., "interview availability"):
+   → Use TODAY'S DATE above to suggest 2-3 upcoming weekday dates
+   → Keep it short: "Apr 22 (Tue) 10am-1pm, Apr 24 (Thu) 2pm-5pm, Apr 25 (Fri) 10am-4pm"
+
+14. If information is NOT AVAILABLE → Return empty string "" (never "N/A")
+
+FORMATTING:
    → No markdown, bullet points, or special formatting
-   → No headings or labels
-   → Write in natural paragraph form
-   → Keep answers 50-150 words for technical questions
-   → Sound conversational, not formal
+   → Keep EVERY answer as short as possible
+   → Simple fields: just the value, nothing else
+   → Questions: 1-3 sentences MAX, no more
+   → Never over-explain. Be direct.
 
-Example of GOOD (human) answer:
-"I usually start by setting up a clear folder structure based on features rather than file types. In my last project, we used a modular architecture where each feature had its own components, hooks, and tests. This made it way easier to scale as the team grew. We also relied heavily on TypeScript and ESLint to catch issues early."
+Examples of GOOD answers:
+- First Name → "John"
+- Years of experience → "2 years"
+- Notice period → "30 days"
+- Current CTC → "800000"
+- Why this role? → "I've built full-stack apps with React and Node.js for 2 years and this role aligns well with my experience in scalable web apps."
+- Technical question → "I use feature-based folder structure with TypeScript and ESLint. In my last project, this helped the team scale from 3 to 8 developers smoothly."
 
-Example of BAD (robotic) answer:
-"I utilize industry-standard best practices to implement scalable architecture patterns. My approach involves leveraging modular design principles and adhering to established conventions."
+Examples of BAD answers:
+- First Name → "My first name is John and I go by Johnny" (too long, just put "John")
+- Experience → "I have gained extensive experience over the course of my career spanning multiple organizations..." (just put "2 years")
+- Any field → "N/A" (use empty string "" instead)
 
 Your JSON array:`;
 
