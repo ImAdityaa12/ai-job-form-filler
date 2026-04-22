@@ -1,3 +1,51 @@
+// ==================== REACT / WORKDAY HELPERS ====================
+
+// Detect if current page is a Workday application
+function isWorkdayPage() {
+    return window.location.hostname.includes('myworkday') ||
+        window.location.hostname.includes('workday.com') ||
+        !!document.querySelector('[data-automation-id]');
+}
+
+// Bypass React's internal value tracker so controlled components actually update state.
+// React overrides the value setter on input instances; calling the prototype setter
+// forces React to see it as a new value and fire onChange.
+function setNativeValue(element, value) {
+    try {
+        const descriptor = Object.getOwnPropertyDescriptor(element, 'value');
+        const prototype = Object.getPrototypeOf(element);
+        const protoDescriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+
+        if (descriptor && descriptor.set && protoDescriptor && descriptor.set !== protoDescriptor.set) {
+            protoDescriptor.set.call(element, value);
+        } else if (protoDescriptor && protoDescriptor.set) {
+            protoDescriptor.set.call(element, value);
+        } else {
+            element.value = value;
+        }
+    } catch (e) {
+        element.value = value;
+    }
+}
+
+// Simulate a realistic event sequence that React and Workday will recognize
+function simulateFullInput(element, value) {
+    element.focus();
+    element.dispatchEvent(new Event('focus', { bubbles: true }));
+
+    // Clear existing value first
+    setNativeValue(element, '');
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+
+    // Set the new value
+    setNativeValue(element, value);
+
+    // Dispatch full event sequence
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new Event('blur', { bubbles: true }));
+}
+
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'fillForm') {
@@ -239,8 +287,9 @@ async function fillFormWithAI() {
 
                 fillField(field, answer);
 
-                // Longer delay for Select2 fields to allow dropdown interactions
-                const delay = field.type === 'select2-search' ? 1000 : 200;
+                // Longer delay for dropdown/Workday fields to allow interactions to settle
+                const delay = (field.type === 'select2-search' || field.type === 'workday-dropdown') ? 1000
+                    : field.isWorkday ? 500 : 200;
                 await sleep(delay);
             }
 
@@ -428,6 +477,107 @@ function findFormFields() {
     // Add radio groups to fields
     radioGroups.forEach(group => fields.push(group));
 
+    // ==================== WORKDAY-SPECIFIC FIELD DETECTION ====================
+    if (isWorkdayPage()) {
+        const processedElements = new Set(fields.map(f => f.element));
+
+        // Workday text inputs (data-automation-id="textInputWidget" or similar)
+        document.querySelectorAll('[data-automation-id*="textInput"], [data-automation-id*="TextInput"]').forEach(input => {
+            if (processedElements.has(input)) return;
+            if (input.offsetParent === null || input.disabled || input.readOnly) return;
+            const label = getWorkdayFieldLabel(input) || getFieldLabel(input);
+            if (label) {
+                fields.push({
+                    element: input,
+                    label: label,
+                    type: input.tagName.toLowerCase(),
+                    inputType: input.type || 'text',
+                    maxLength: input.getAttribute('maxlength') || null,
+                    isWorkday: true
+                });
+                processedElements.add(input);
+            }
+        });
+
+        // Workday generic inputs inside formField containers
+        document.querySelectorAll('[data-automation-id^="formField-"]').forEach(container => {
+            const input = container.querySelector('input, textarea');
+            if (!input || processedElements.has(input)) return;
+            if (input.offsetParent === null || input.disabled || input.readOnly) return;
+            const label = getWorkdayFieldLabel(input) || getFieldLabel(input);
+            if (label) {
+                fields.push({
+                    element: input,
+                    label: label,
+                    type: input.tagName.toLowerCase(),
+                    inputType: input.type || 'text',
+                    maxLength: input.getAttribute('maxlength') || null,
+                    isWorkday: true
+                });
+                processedElements.add(input);
+            }
+        });
+
+        // Workday dropdowns (data-automation-id="selectWidget" or "multiselectInputContainer")
+        document.querySelectorAll('[data-automation-id*="selectWidget"], [data-automation-id*="selectInput"], [data-automation-id*="multiselectInputContainer"]').forEach(el => {
+            // The clickable dropdown trigger
+            const input = el.querySelector('input') || el;
+            if (processedElements.has(input)) return;
+            if (input.offsetParent === null) return;
+            const label = getWorkdayFieldLabel(input) || getFieldLabel(input);
+            if (label) {
+                fields.push({
+                    element: input,
+                    label: label,
+                    type: 'workday-dropdown',
+                    inputType: 'workday-dropdown',
+                    container: el,
+                    maxLength: null,
+                    isWorkday: true
+                });
+                processedElements.add(input);
+            }
+        });
+
+        // Workday date inputs
+        document.querySelectorAll('[data-automation-id*="dateInput"], [data-automation-id*="DateInput"]').forEach(el => {
+            const input = el.querySelector('input') || el;
+            if (processedElements.has(input)) return;
+            if (input.offsetParent === null) return;
+            const label = getWorkdayFieldLabel(input) || getFieldLabel(input);
+            if (label) {
+                fields.push({
+                    element: input,
+                    label: label,
+                    type: 'workday-date',
+                    inputType: 'text',
+                    maxLength: null,
+                    isWorkday: true
+                });
+                processedElements.add(input);
+            }
+        });
+
+        // Catch remaining visible inputs/textareas not yet processed
+        document.querySelectorAll('[data-automation-id] input:not([type="hidden"]), [data-automation-id] textarea').forEach(input => {
+            if (processedElements.has(input)) return;
+            if (input.offsetParent === null || input.disabled || input.readOnly) return;
+            if (input.classList.contains('select2-search__field')) return;
+            const label = getWorkdayFieldLabel(input) || getFieldLabel(input);
+            if (label) {
+                fields.push({
+                    element: input,
+                    label: label,
+                    type: input.tagName.toLowerCase(),
+                    inputType: input.type || 'text',
+                    maxLength: input.getAttribute('maxlength') || null,
+                    isWorkday: true
+                });
+                processedElements.add(input);
+            }
+        });
+    }
+
     return fields;
 }
 
@@ -602,6 +752,67 @@ function getFieldLabel(element) {
     if (!label && element.name) label = element.name.replace(/[_-]/g, ' ').trim();
 
     // Clean up label text
+    if (label) {
+        label = label.replace(/\*/g, '').replace(/:/g, '').replace(/\s+/g, ' ')
+            .replace(/^\s+|\s+$/g, '').replace(/\(required\)/gi, '').replace(/\(optional\)/gi, '');
+    }
+    return label;
+}
+
+// Workday-specific label detection using data-automation-id and aria attributes
+function getWorkdayFieldLabel(element) {
+    let label = null;
+
+    // 1. Check aria-labelledby (Workday uses this extensively)
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+        const ids = labelledBy.split(' ');
+        const texts = ids.map(id => {
+            const el = document.getElementById(id);
+            return el ? el.textContent.trim() : '';
+        }).filter(t => t);
+        if (texts.length > 0) label = texts.join(' ');
+    }
+
+    // 2. Check aria-label
+    if (!label && element.getAttribute('aria-label')) {
+        label = element.getAttribute('aria-label').trim();
+    }
+
+    // 3. Look for label in the closest formField container via data-automation-id
+    if (!label) {
+        const formField = element.closest('[data-automation-id^="formField-"]');
+        if (formField) {
+            // Extract field name from automation id (e.g., "formField-jobTitle" → "job Title")
+            const automationId = formField.getAttribute('data-automation-id');
+            const fieldName = automationId.replace('formField-', '');
+
+            // Look for a label element inside the container
+            const labelEl = formField.querySelector('label, [data-automation-id*="label"], [data-automation-id*="Label"]');
+            if (labelEl) {
+                label = labelEl.textContent.trim();
+            }
+
+            // Fallback: convert camelCase automation-id to readable text
+            if (!label && fieldName) {
+                label = fieldName
+                    .replace(/([A-Z])/g, ' $1')  // camelCase → spaced
+                    .replace(/[-_]/g, ' ')
+                    .trim();
+            }
+        }
+    }
+
+    // 4. Check parent containers for labels
+    if (!label) {
+        const parent = element.closest('[data-automation-id]');
+        if (parent) {
+            const labelEl = parent.querySelector('label');
+            if (labelEl) label = labelEl.textContent.trim();
+        }
+    }
+
+    // Clean up
     if (label) {
         label = label.replace(/\*/g, '').replace(/:/g, '').replace(/\s+/g, ' ')
             .replace(/^\s+|\s+$/g, '').replace(/\(required\)/gi, '').replace(/\(optional\)/gi, '');
@@ -979,7 +1190,7 @@ function fillField(field, value) {
             if (option.text.toLowerCase().includes(value.toLowerCase()) ||
                 option.value.toLowerCase().includes(value.toLowerCase()) ||
                 value.toLowerCase().includes(option.text.toLowerCase())) {
-                select.value = option.value;
+                setNativeValue(select, option.value);
                 matched = true;
                 break;
             }
@@ -989,7 +1200,7 @@ function fillField(field, value) {
             console.log(`No matching option found for: "${value}"`);
         }
 
-        // Trigger events
+        // Trigger events (use native setter-compatible sequence)
         select.dispatchEvent(new Event('input', { bubbles: true }));
         select.dispatchEvent(new Event('change', { bubbles: true }));
         select.dispatchEvent(new Event('blur', { bubbles: true }));
@@ -1088,27 +1299,90 @@ function fillField(field, value) {
                 }
             }, 500);
         }, 200);
+    } else if (field.type === 'workday-dropdown') {
+        // Workday custom dropdown — click to open, search, click result
+        fillWorkdayDropdown(field, value);
     } else {
         // For text inputs, number inputs, and textareas
         const element = field.element;
+        let finalValue = value;
 
         // For number inputs, ensure we're setting a valid number
         if (element.type === 'number') {
-            // Extract numbers from the value
-            const numericValue = value.replace(/[^0-9.]/g, '');
-            element.value = numericValue;
-        } else {
-            element.value = value;
+            finalValue = value.replace(/[^0-9.]/g, '');
         }
 
-        // Trigger events
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-        element.dispatchEvent(new Event('blur', { bubbles: true }));
+        // Use native value setter to bypass React's controlled component tracking
+        simulateFullInput(element, finalValue);
 
         // Visual feedback
         element.style.backgroundColor = '#e8f5e9';
         setTimeout(() => { element.style.backgroundColor = ''; }, 1000);
+    }
+}
+
+// Handle Workday custom dropdowns (popper-based, not <select>)
+async function fillWorkdayDropdown(field, value) {
+    const container = field.container || field.element.closest('[data-automation-id]');
+    const input = field.element;
+
+    // Step 1: Click to open the dropdown
+    input.click();
+    input.focus();
+    await sleep(300);
+
+    // Step 2: Type the search value
+    simulateFullInput(input, value);
+    await sleep(500);
+
+    // Step 3: Look for matching results in the dropdown popup
+    const resultSelectors = [
+        '[data-automation-id*="promptOption"]',
+        '[data-automation-id*="selectOption"]',
+        '[data-automation-id*="menuItem"]',
+        '[role="option"]',
+        '[role="listbox"] [role="option"]',
+        'li[role="option"]'
+    ];
+
+    let clicked = false;
+    for (const selector of resultSelectors) {
+        const options = document.querySelectorAll(selector);
+        for (const option of options) {
+            const text = option.textContent.trim().toLowerCase();
+            if (text.includes(value.toLowerCase()) || value.toLowerCase().includes(text)) {
+                option.click();
+                clicked = true;
+                console.log(`✓ Selected Workday dropdown option: "${option.textContent.trim()}"`);
+                break;
+            }
+        }
+        if (clicked) break;
+    }
+
+    // Step 4: If no exact match, click the first available option
+    if (!clicked) {
+        for (const selector of resultSelectors) {
+            const firstOption = document.querySelector(selector);
+            if (firstOption && firstOption.offsetParent !== null) {
+                firstOption.click();
+                console.log(`✓ Selected first Workday dropdown option: "${firstOption.textContent.trim()}"`);
+                clicked = true;
+                break;
+            }
+        }
+    }
+
+    if (!clicked) {
+        // Fallback: press Enter
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+        console.log(`Pressed Enter for Workday dropdown: "${value}"`);
+    }
+
+    // Visual feedback
+    if (container) {
+        container.style.backgroundColor = '#e8f5e9';
+        setTimeout(() => { container.style.backgroundColor = ''; }, 1000);
     }
 }
 
