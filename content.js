@@ -978,6 +978,12 @@ GOLDEN RULE: KEEP ANSWERS SHORT AND CRISP. No long paragraphs. No fluff.
 8d. CURRENT/EXPECTED JOB ROLE on the application:
    → If the field asks what role you're applying for (e.g. "Position applied for", "Role"), use the job title from the JOB POSTING content above, NOT from the resume.
 
+8e. RELEVANT EXPERIENCE / RELEVANT JOB fields (e.g. "Enter a job that shows relevant experience", "Most relevant past role", "Pick a job to share with the employer"):
+   → This is asking which of YOUR PAST JOBS (from the resume) best matches what the employer is hiring for. Do NOT return the job title being applied for.
+   → Look at the job posting's required skills/role, then pick the resume role whose title + tech stack overlaps most.
+   → Return ONLY the past job title as it appears in the resume (e.g. "Frontend Developer", "Software Engineer Intern"). Optionally append the company if the field is long, e.g. "Frontend Developer at Acme Corp".
+   → If unsure, default to the MOST RECENT role from the resume — NEVER the role being applied for.
+
 9. For NOTICE PERIOD fields → Short answer like "30 days", "Immediate", "2 weeks"
 
 10. For SALARY/CTC fields → Just the number like "800000" or a short answer like "8 LPA"
@@ -1012,6 +1018,7 @@ Examples of GOOD answers:
 - Current CTC [number only] → "800000"
 - Current Company → "Acme Corp" (the latest employer from the resume)
 - Current Job Title → "Software Engineer" (the title of the latest role in the resume)
+- Enter a job that shows relevant experience → "Frontend Developer at Acme Corp" (a PAST role from the resume that matches the posting — NOT the job being applied for)
 - Why this role? → "I've built full-stack apps with React and Node.js for 2 years and this role aligns well with my experience in scalable web apps."
 - Technical question → "I use feature-based folder structure with TypeScript and ESLint. In my last project, this helped the team scale from 3 to 8 developers smoothly."
 
@@ -1020,6 +1027,7 @@ Examples of BAD answers:
 - Total Experience [number only] → "2 years" (must be JUST "2" — no units in number fields)
 - Experience → "I have gained extensive experience over the course of my career spanning multiple organizations..." (just put "2 years" or "2")
 - Current Company → "Edvanta Technologies" when the resume's current employer is actually "Acme Corp" (read the resume — never hardcode)
+- "Enter a job that shows relevant experience" → "Senior Full Stack Engineer" when that's the role being applied for, not held (must be a PAST role from your resume)
 - Any field → "N/A" (use empty string "" instead)
 
 Your JSON array:`;
