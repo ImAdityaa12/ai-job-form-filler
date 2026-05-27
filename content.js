@@ -253,12 +253,20 @@ async function fillFormWithAI() {
                 const field = formFields[i];
                 let answer = answers[i];
 
-                // Hardcoded overrides for specific fields
+                // For numeric experience-style fields, coerce to a plain integer
+                // (e.g. "2 years" → "2"). Triggered when the input is numeric OR
+                // the label clearly asks for an experience count.
                 const labelLower = (field.label || '').toLowerCase();
-                if (labelLower.includes('job title') || (labelLower === 'title')) {
-                    answer = 'Associate Fullstack Developer';
-                } else if (labelLower.includes('company') && !labelLower.includes('previous') && !labelLower.includes('former') && !labelLower.includes('last')) {
-                    answer = 'Edvanta Technologies';
+                const isExperienceLabel = /\b(experience|exp|years?|yrs?)\b/.test(labelLower);
+                const isNumericInput = field.inputType === 'number' ||
+                    (field.element && field.element.type === 'number');
+                if (answer && (isNumericInput || (isExperienceLabel && field.type !== 'radio' && field.type !== 'select' && field.type !== 'select2' && field.type !== 'select2-search' && field.type !== 'workday-dropdown'))) {
+                    const numMatch = String(answer).match(/(\d+(?:\.\d+)?)/);
+                    if (numMatch) {
+                        // Prefer integer for "total experience" style fields
+                        const wantsInteger = isNumericInput || /total\s*(experience|exp)/.test(labelLower);
+                        answer = wantsInteger ? String(Math.round(parseFloat(numMatch[1]))) : numMatch[1];
+                    }
                 }
 
                 // Calculate progress (55% to 75% for filling fields)
@@ -941,16 +949,34 @@ GOLDEN RULE: KEEP ANSWERS SHORT AND CRISP. No long paragraphs. No fluff.
 4. [URL] fields → Just the URL (e.g., "https://linkedin.com/in/johndoe")
 
 5. [number only] fields (salary, notice period, years of experience):
-   → Return ONLY digits, NO text, NO units
-   → Examples: "50000", "30", "5"
+   → Return ONLY digits, NO text, NO units, NO words
+   → Examples: "50000", "30", "5", "2"
+   → For "Total Experience" / "Years of Experience" in a [number only] field, return JUST the integer (e.g. "2"), NOT "2 years"
 
 6. [dropdown] fields → Pick the EXACT option text from the listed options.
 
 7. [radio] fields → Pick one of the listed options. Return the EXACT option text.
 
 8. For EXPERIENCE fields (e.g., "years of experience", "total experience", "experience"):
-   → Return SHORT answer like "2 years" or "3.5 years"
+   → If the field type is [number only] or [text] with a label like "total experience" / "years of experience": return JUST the number (e.g. "2" or "3.5"), no units.
+   → For other phrasing (e.g. textarea asking to describe experience): "2 years" or "3.5 years" is fine.
    → Calculate from resume dates. Do NOT write sentences or paragraphs.
+
+8a. CURRENT COMPANY / CURRENT EMPLOYER / CURRENT ORGANIZATION fields:
+   → Use the MOST RECENT (current) employer from the resume. Look for the job entry with end date "Present", "Current", or the latest end date.
+   → Return ONLY the company name (e.g. "Acme Corp"), nothing else.
+   → If the resume has no current employer, return empty string "".
+
+8b. CURRENT JOB TITLE / CURRENT POSITION / CURRENT DESIGNATION fields:
+   → Use the job title from the MOST RECENT (current) role in the resume.
+   → Return ONLY the title (e.g. "Software Engineer"), nothing else.
+
+8c. PREVIOUS / FORMER / LAST COMPANY fields:
+   → Use the SECOND-most-recent employer from the resume (the one BEFORE the current role).
+   → If only one job exists in the resume, return empty string "".
+
+8d. CURRENT/EXPECTED JOB ROLE on the application:
+   → If the field asks what role you're applying for (e.g. "Position applied for", "Role"), use the job title from the JOB POSTING content above, NOT from the resume.
 
 9. For NOTICE PERIOD fields → Short answer like "30 days", "Immediate", "2 weeks"
 
@@ -978,15 +1004,22 @@ FORMATTING:
 
 Examples of GOOD answers:
 - First Name → "John"
-- Years of experience → "2 years"
-- Notice period → "30 days"
-- Current CTC → "800000"
+- Total Experience [number only] → "2"
+- Years of experience [number only] → "2"
+- Years of experience [text] → "2 years"
+- Notice period [number only] → "30"
+- Notice period [text] → "30 days"
+- Current CTC [number only] → "800000"
+- Current Company → "Acme Corp" (the latest employer from the resume)
+- Current Job Title → "Software Engineer" (the title of the latest role in the resume)
 - Why this role? → "I've built full-stack apps with React and Node.js for 2 years and this role aligns well with my experience in scalable web apps."
 - Technical question → "I use feature-based folder structure with TypeScript and ESLint. In my last project, this helped the team scale from 3 to 8 developers smoothly."
 
 Examples of BAD answers:
 - First Name → "My first name is John and I go by Johnny" (too long, just put "John")
-- Experience → "I have gained extensive experience over the course of my career spanning multiple organizations..." (just put "2 years")
+- Total Experience [number only] → "2 years" (must be JUST "2" — no units in number fields)
+- Experience → "I have gained extensive experience over the course of my career spanning multiple organizations..." (just put "2 years" or "2")
+- Current Company → "Edvanta Technologies" when the resume's current employer is actually "Acme Corp" (read the resume — never hardcode)
 - Any field → "N/A" (use empty string "" instead)
 
 Your JSON array:`;
