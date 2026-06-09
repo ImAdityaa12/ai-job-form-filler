@@ -1,31 +1,54 @@
-// Background service worker for the extension
+// Background service worker for the AI Job Form Filler extension.
+
 chrome.runtime.onInstalled.addListener(() => {
     console.log('AI Job Form Filler extension installed');
 });
 
-// Handle keyboard shortcut command
-chrome.commands.onCommand.addListener((command) => {
-    if (command === 'fill-form') {
-        console.log('Keyboard shortcut triggered: fill-form');
+// ==================== TOOLBAR TOGGLE ====================
 
-        // Get the active tab and send message to content script
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0]) {
-                chrome.tabs.sendMessage(tabs[0].id, { action: 'fillForm' }, (response) => {
-                    if (chrome.runtime.lastError) {
-                        console.error('Error:', chrome.runtime.lastError.message);
-                    } else if (response && response.success) {
-                        console.log('Form filled successfully via shortcut');
-                    } else {
-                        console.error('Error filling form:', response?.error);
-                    }
-                });
-            }
-        });
-    }
+// Clicking the extension icon toggles the in-page toolbar (we no longer use a popup).
+chrome.action.onClicked.addListener((tab) => {
+    if (!tab || !tab.id) return;
+    sendToTab(tab.id, { action: 'togglePanel' });
 });
 
-// Proxy fetch requests from content scripts to bypass CORS restrictions
+// Send a message to a tab's content script. If the content script isn't there
+// yet (e.g. the page was open before install, or was just reloaded), inject it
+// programmatically and retry once.
+function sendToTab(tabId, message) {
+    chrome.tabs.sendMessage(tabId, message, () => {
+        if (chrome.runtime.lastError) {
+            chrome.scripting.executeScript(
+                { target: { tabId }, files: ['content.js', 'ui.js'] },
+                () => {
+                    if (chrome.runtime.lastError) {
+                        // Restricted page (chrome://, web store, etc.) — nothing we can do.
+                        console.warn('Cannot run on this page:', chrome.runtime.lastError.message);
+                        return;
+                    }
+                    chrome.tabs.sendMessage(tabId, message, () => void chrome.runtime.lastError);
+                }
+            );
+        }
+    });
+}
+
+// ==================== KEYBOARD SHORTCUTS ====================
+
+chrome.commands.onCommand.addListener((command) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs[0] || !tabs[0].id) return;
+        if (command === 'fill-form') {
+            sendToTab(tabs[0].id, { action: 'autoFill' });
+        } else if (command === 'toggle-panel') {
+            sendToTab(tabs[0].id, { action: 'togglePanel' });
+        }
+    });
+});
+
+// ==================== CORS PROXY ====================
+
+// Proxy fetch requests from content scripts to bypass page CORS restrictions.
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'proxyFetch') {
         fetch(request.url, request.options)
@@ -38,5 +61,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
         return true; // Keep channel open for async response
     }
-    return true;
 });

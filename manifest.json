@@ -1,17 +1,18 @@
 {
   "manifest_version": 3,
   "name": "AI Job Form Filler",
-  "version": "1.0",
-  "description": "Auto-fill job application forms using AI based on your resume",
+  "version": "2.0",
+  "description": "Auto-fill job application forms using AI based on your resume. In-page toolbar with Auto Fill, Fix Field Errors, and Workday Auto Fill.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://generativelanguage.googleapis.com/*",
     "https://api.groq.com/*",
+    "https://api.cerebras.ai/*",
     "https://integrate.api.nvidia.com/*",
     "https://openrouter.ai/*"
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_title": "Toggle AI Form Filler toolbar",
     "default_icon": {
       "16": "icon16.png",
       "48": "icon48.png",
@@ -21,7 +22,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["content.js", "ui.js"],
       "run_at": "document_idle"
     }
   ],
@@ -34,7 +35,14 @@
         "default": "Ctrl+Shift+F",
         "mac": "Command+Shift+F"
       },
-      "description": "Fill form automatically with AI"
+      "description": "Auto-fill the form with AI"
+    },
+    "toggle-panel": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Show / hide the AI Form Filler toolbar"
     }
   }
 }
