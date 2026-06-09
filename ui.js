@@ -221,9 +221,49 @@
   .status.ok { display: block; background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
   .status.err { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
 
+  /* ---- Micro-interactions (subtle, motivated, 0.12-0.3s) ---- */
+  .btn { transition: background .18s ease, border-color .18s ease, transform .12s ease; }
+  .btn svg { transition: transform .2s ease, color .18s ease; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:hover svg { transform: scale(1.08); }
+  .btn.primary:hover svg { transform: rotate(-8deg) scale(1.08); }
+  .btn:active { transform: scale(.96); }
+  .btn[disabled], .btn[disabled]:hover { transform: none; }
+
+  .icon-btn { transition: background .18s ease, color .18s ease, transform .12s ease; }
+  .icon-btn svg { transition: transform .2s ease; }
+  .icon-btn:hover { transform: translateY(-1px); }
+  .icon-btn:active { transform: scale(.9); }
+  #closeBtn:hover svg { transform: rotate(90deg); }
+  #menuBtn.active svg { transform: scale(1.06); }
+
+  .mark { transition: transform .25s ease; }
+  .bar:hover .mark { transform: rotate(-6deg); }
+
+  .ubtn, .addrow, .danger { transition: background .18s ease, border-color .18s ease, color .18s ease, transform .12s ease; }
+  .ubtn:hover { transform: translateY(-1px); }
+  .ubtn:active, .addrow:active, .danger:active { transform: scale(.97); }
+  .dyn .rm { transition: border-color .15s ease, color .15s ease, background .15s ease, transform .12s ease; }
+  .dyn .rm:active { transform: scale(.9); }
+
+  .save { transition: background .18s ease, transform .12s ease, box-shadow .18s ease; }
+  .save:hover { transform: translateY(-1px); }
+  .save:active { transform: scale(.98); }
+
+  .in, select.in, textarea.in { transition: border-color .18s ease, box-shadow .2s ease, background .18s ease; }
+  .chev svg { transition: transform .2s ease; }
+
+  .pulse { animation: pulse .32s ease; }
+  .bar { animation: barIn .22s ease; }
+  .status.ok, .status.err { animation: statusIn .25s ease; }
+
+  @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+  @keyframes barIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes statusIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
   @media (prefers-reduced-motion: reduce) {
-    .panel.open { animation: none; }
-    * { transition: none !important; }
+    *, *::before, *::after { transition: none !important; }
+    .panel.open, .bar, .pulse, .status.ok, .status.err { animation: none !important; }
   }
 </style>
 
@@ -347,10 +387,14 @@
 
     // ---------- Visibility ----------
     wrap.style.display = 'none'; // hidden until the icon (or shortcut) opens it
+    // Quick scale-pulse: removing + reflow + re-adding the class restarts the keyframe.
+    function pulse(el) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); }
+
     function toggle() {
         const showing = wrap.style.display !== 'none';
         wrap.style.display = showing ? 'none' : 'flex';
         if (showing) { panel.classList.remove('open'); $('#menuBtn').classList.remove('active'); }
+        else { bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = ''; } // replay entrance
     }
     function togglePanel() {
         panel.classList.toggle('open');
@@ -403,7 +447,8 @@
             return;
         }
         setBusy(true, btn);
-        try { await fn(); } catch (e) { console.error(e); } finally { setBusy(false, btn); }
+        let ok = false;
+        try { await fn(); ok = true; } catch (e) { console.error(e); } finally { setBusy(false, btn); if (ok) pulse(btn); }
     }
     $('#autoFillBtn').addEventListener('click', (e) => runAction(e.currentTarget, () => window.AIFormFiller.autoFill()));
     $('#fixBtn').addEventListener('click', (e) => runAction(e.currentTarget, () => window.AIFormFiller.fixErrors()));
@@ -586,7 +631,7 @@
             if (provider === 'groq') data.apiKey = apiKey; // legacy compat
             chrome.storage.local.set(data, () => {
                 if (chrome.runtime.lastError) toast('Error saving: ' + chrome.runtime.lastError.message, 'err');
-                else toast('Settings saved.', 'ok');
+                else { toast('Settings saved.', 'ok'); pulse($('#saveBtn')); }
             });
         });
     });
