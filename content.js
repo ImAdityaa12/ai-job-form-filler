@@ -136,13 +136,11 @@ function showNotification(message, type = 'info', progress = null) {
         position: fixed !important;
         top: 20px !important;
         right: 20px !important;
-        background: ${type === 'success' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' :
-            type === 'error' ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' :
-                'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'} !important;
+        background: ${type === 'success' ? '#059669' : type === 'error' ? '#dc2626' : '#2f6bd8'} !important;
         color: white !important;
-        padding: 16px 24px !important;
+        padding: 14px 20px !important;
         border-radius: 12px !important;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 10px 30px rgba(0, 0, 0, 0.22) !important;
         z-index: 2147483647 !important;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
         font-size: 14px !important;
