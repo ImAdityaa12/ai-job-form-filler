@@ -256,13 +256,14 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
     updateProgress(25);
     await sleep(200);
 
-    // Send message to content script
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'fillForm' }, async (response) => {
-            if (chrome.runtime.lastError) {
-                hideLoader();
-                showStatus('✗ Error: ' + chrome.runtime.lastError.message, 'error');
-            } else if (response && response.success) {
+    try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) {
+            throw new Error('No active browser tab found.');
+        }
+
+        const response = await sendFillFormMessage(tab.id);
+        if (response?.success) {
                 // Complete step 1 and move to step 2 (25-50%)
                 updateLoaderStep(1, 'completed');
                 updateProgress(30);
@@ -298,13 +299,36 @@ document.getElementById('fillBtn').addEventListener('click', async () => {
 
                 hideLoader();
                 showStatus('✓ Form filled successfully!', 'success');
-            } else {
-                hideLoader();
-                showStatus('✗ Error filling form: ' + (response?.error || 'Unknown error'), 'error');
-            }
-        });
-    });
+        } else {
+            throw new Error(response?.error || 'Unknown error');
+        }
+    } catch (error) {
+        hideLoader();
+        showStatus('✗ Cannot fill this page: ' + error.message, 'error');
+    }
 });
+
+async function sendFillFormMessage(tabId) {
+    try {
+        return await chrome.tabs.sendMessage(tabId, { action: 'fillForm' });
+    } catch (error) {
+        const receiverMissing = error.message.includes('Receiving end does not exist') ||
+            error.message.includes('Could not establish connection');
+
+        if (!receiverMissing) {
+            throw error;
+        }
+
+        // Inject the content script into pages that were open before the
+        // extension was installed or reloaded, then retry the request.
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['content.js']
+        });
+
+        return chrome.tabs.sendMessage(tabId, { action: 'fillForm' });
+    }
+}
 
 function showLoader() {
     const overlay = document.getElementById('loaderOverlay');

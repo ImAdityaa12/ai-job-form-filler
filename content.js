@@ -197,10 +197,11 @@ async function fillFormWithAI() {
 
                 // Hardcoded overrides for specific fields
                 const labelLower = (field.label || '').toLowerCase();
-                if (labelLower.includes('job title') || (labelLower === 'title')) {
-                    answer = 'Associate Fullstack Developer';
-                } else if (labelLower.includes('company') && !labelLower.includes('previous') && !labelLower.includes('former') && !labelLower.includes('last')) {
-                    answer = 'Edvanta Technologies';
+                if (labelLower.includes('current job title') || labelLower.includes('current position')) {
+                    answer = 'Software Developer';
+                } else if ((labelLower.includes('current company') || labelLower.includes('current employer')) &&
+                    !labelLower.includes('previous') && !labelLower.includes('former') && !labelLower.includes('last')) {
+                    answer = 'Anglerfox';
                 }
 
                 // Calculate progress (55% to 75% for filling fields)
@@ -233,6 +234,12 @@ async function fillFormWithAI() {
                 const delay = field.type === 'select2-search' ? 1000 : 200;
                 await sleep(delay);
             }
+
+            // Some frameworks re-render the phone controls when the
+            // "Same as phone number" checkbox changes, which can reset a
+            // country-code selection made earlier in the loop. Apply all
+            // linked phone controls once more in their final order.
+            await synchronizePhoneContactFields();
 
             showNotification('Form fields filled!', 'info', 75);
             await sleep(200);
@@ -322,7 +329,7 @@ function findFormFields() {
     });
 
     // Now process regular inputs
-    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input:not([type]), textarea, select');
+    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input[type="checkbox"], input:not([type]), textarea, select');
 
     inputs.forEach(input => {
         // Skip select2 search fields (already processed above)
@@ -331,15 +338,28 @@ function findFormFields() {
         // Skip select elements that are part of Select2 (already processed)
         if (input.tagName === 'SELECT' && processedSelect2.has(input)) return;
 
-        if (input.offsetParent === null || input.disabled || input.readOnly) return;
-        const label = getFieldLabel(input);
+        if (input.disabled || input.readOnly) return;
+        const isPhoneCountryCode = input.tagName === 'SELECT' && isPhoneCountryCodeSelect(input);
+        const detectedLabel = getFieldLabel(input);
+        const isSamePhoneCheckbox = input.type === 'checkbox' &&
+            /same\s+as.*(?:phone|mobile)|(?:phone|mobile|whatsapp).*same/i.test(detectedLabel || '');
+
+        // Some sites visually replace their real checkbox and hide the input.
+        // Keep a hidden input only when it is the explicit phone-copy control.
+        if (input.offsetParent === null && !isSamePhoneCheckbox && !isPhoneCountryCode) return;
+
+        const label = isPhoneCountryCode
+            ? `${detectedLabel || 'Phone number'} country code`
+            : detectedLabel;
         if (label) {
             fields.push({
                 element: input,
                 label: label,
                 type: input.tagName.toLowerCase(),
                 inputType: input.type || 'text',
-                maxLength: input.getAttribute('maxlength') || null
+                maxLength: input.getAttribute('maxlength') || null,
+                isPhoneCountryCode: isPhoneCountryCode,
+                isSamePhoneCheckbox: isSamePhoneCheckbox
             });
         }
     });
@@ -549,6 +569,161 @@ function getFieldLabel(element) {
     return label;
 }
 
+function findIndiaPhoneCodeOption(select) {
+    return Array.from(select.options || []).find(option => {
+        const text = (option.textContent || '').trim();
+        const value = String(option.value || '').trim();
+        const combined = `${text} ${value}`;
+        const valueDigits = value.replace(/\D/g, '');
+
+        return valueDigits === '91' ||
+            /(?:^|\D)\+91(?:\D|$)/.test(combined) ||
+            (/\bindia\b/i.test(combined) && /(?:^|\D)91(?:\D|$)/.test(combined));
+    }) || null;
+}
+
+function isPhoneCountryCodeSelect(select) {
+    if (!findIndiaPhoneCodeOption(select)) return false;
+
+    const attributes = [
+        select.id,
+        select.name,
+        select.getAttribute('aria-label'),
+        select.getAttribute('data-testid')
+    ].filter(Boolean).join(' ');
+
+    if (/phone|mobile|whatsapp|dial|country.?code/i.test(attributes)) {
+        return true;
+    }
+
+    // Phone-code selects are commonly placed beside their number input inside
+    // a small shared wrapper. Limit the search depth to avoid matching an
+    // unrelated country selector elsewhere in the form.
+    let ancestor = select.parentElement;
+    for (let depth = 0; ancestor && depth < 3; depth++, ancestor = ancestor.parentElement) {
+        const relatedInput = ancestor.querySelector(
+            'input[type="tel"], input[name*="phone" i], input[name*="mobile" i], input[name*="whatsapp" i]'
+        );
+        const nearbyText = (ancestor.textContent || '').slice(0, 300);
+        if (relatedInput || /phone|mobile|whatsapp/i.test(nearbyText)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function isPhoneContextElement(element) {
+    const attributes = [
+        element.id,
+        element.getAttribute?.('name'),
+        element.getAttribute?.('aria-label'),
+        element.getAttribute?.('data-testid')
+    ].filter(Boolean).join(' ');
+
+    if (/phone|mobile|whatsapp|dial|country.?code/i.test(attributes)) {
+        return true;
+    }
+
+    let ancestor = element.parentElement;
+    for (let depth = 0; ancestor && depth < 3; depth++, ancestor = ancestor.parentElement) {
+        const nearbyText = (ancestor.textContent || '').replace(/\s+/g, ' ').slice(0, 400);
+        const hasNumberInput = Boolean(ancestor.querySelector(
+            'input[type="tel"], input[name*="phone" i], input[name*="mobile" i], input[name*="whatsapp" i]'
+        ));
+
+        if (hasNumberInput ||
+            (nearbyText.length <= 200 && /phone|mobile|whatsapp/i.test(nearbyText))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function isIndiaPhoneCodeText(text) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    return /(?:^|\D)\+91(?:\D|$)/.test(normalized) &&
+        (/\bindia\b/i.test(normalized) || /^\+91(?:\D|$)/.test(normalized));
+}
+
+async function fillCustomPhoneCodeControl(control) {
+    const currentText = `${control.textContent || ''} ${control.value || ''}`;
+    if (isIndiaPhoneCodeText(currentText)) return true;
+
+    control.click();
+    await sleep(200);
+
+    const optionSelectors = [
+        '[role="option"]',
+        '.ant-select-item-option',
+        '.p-dropdown-item',
+        '.select2-results__option',
+        'li'
+    ].join(', ');
+
+    const indiaOption = Array.from(document.querySelectorAll(optionSelectors)).find(option =>
+        option.offsetParent !== null && isIndiaPhoneCodeText(option.textContent)
+    );
+
+    if (!indiaOption) {
+        // Close the control if opening it did not reveal a matching option.
+        control.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Escape',
+            code: 'Escape',
+            bubbles: true
+        }));
+        return false;
+    }
+
+    indiaOption.click();
+    dispatchFormEvents(control);
+    showFilledFeedback(control);
+    await sleep(100);
+    return true;
+}
+
+async function synchronizePhoneContactFields() {
+    // Check the copy-phone-number control first because it may re-render and
+    // reset one or both country-code dropdowns.
+    const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+    for (const checkbox of checkboxes) {
+        const label = getFieldLabel(checkbox) || '';
+        const isSamePhone = /same\s+as.*(?:phone|mobile)|(?:phone|mobile|whatsapp).*same/i.test(label);
+        if (isSamePhone && !checkbox.checked) {
+            checkbox.click();
+            await sleep(150);
+        }
+    }
+
+    // Re-apply India (+91) after the checkbox-triggered re-render.
+    const nativeSelects = Array.from(document.querySelectorAll('select'));
+    for (const select of nativeSelects) {
+        if (!isPhoneCountryCodeSelect(select)) continue;
+        const indiaOption = findIndiaPhoneCodeOption(select);
+        if (!indiaOption) continue;
+
+        setNativeProperty(select, 'value', indiaOption.value);
+        dispatchFormEvents(select);
+        showFilledFeedback(select);
+        await sleep(100);
+    }
+
+    // Handle React Select, Ant Design, PrimeReact, and similar custom
+    // comboboxes that do not expose a native <select> element.
+    const customControls = Array.from(document.querySelectorAll(
+        '[role="combobox"], button[aria-haspopup="listbox"], [aria-haspopup="listbox"]'
+    )).filter((control, index, controls) =>
+        controls.indexOf(control) === index &&
+        control.offsetParent !== null &&
+        isPhoneContextElement(control)
+    );
+
+    for (const control of customControls) {
+        await fillCustomPhoneCodeControl(control);
+    }
+}
+
 function extractJobContext() {
     // Get all visible text content from the page
     const bodyText = document.body.innerText;
@@ -676,7 +851,13 @@ Example of BAD (robotic) answer:
 
 Your JSON array:`;
 
-    const models = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 'llama-3.1-8b-instant'];
+    // Keep this list aligned with Groq's production models. The previous
+    // Llama models were retired for free/developer accounts on 2026-08-16.
+    const models = [
+        'openai/gpt-oss-120b',
+        'qwen/qwen3.6-27b',
+        'openai/gpt-oss-20b'
+    ];
     let lastError = null;
 
     for (const model of models) {
@@ -791,7 +972,69 @@ Your JSON array:`;
     throw lastError || new Error('All models failed. Please check your Groq API key at https://console.groq.com/keys');
 }
 
+function setNativeProperty(element, property, value) {
+    const prototype = Object.getPrototypeOf(element);
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+
+    if (descriptor?.set) {
+        descriptor.set.call(element, value);
+    } else {
+        element[property] = value;
+    }
+}
+
+function dispatchFormEvents(element) {
+    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    element.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
+}
+
+function showFilledFeedback(element) {
+    element.style.backgroundColor = '#e8f5e9';
+    setTimeout(() => { element.style.backgroundColor = ''; }, 1000);
+}
+
 function fillField(field, value) {
+    value = value == null ? '' : String(value);
+
+    if (field.isPhoneCountryCode) {
+        const select = field.element;
+        const indiaOption = findIndiaPhoneCodeOption(select);
+
+        if (indiaOption) {
+            setNativeProperty(select, 'value', indiaOption.value);
+            dispatchFormEvents(select);
+            showFilledFeedback(select);
+            console.log(`✓ Selected India phone code: "${indiaOption.textContent.trim()}"`);
+        } else {
+            console.log('No India (+91) phone-code option found');
+        }
+        return;
+    }
+
+    if (field.inputType === 'checkbox') {
+        const normalizedValue = value.trim().toLowerCase();
+        const shouldCheck = field.isSamePhoneCheckbox ||
+            ['yes', 'true', 'checked', '1'].includes(normalizedValue);
+
+        if (!value.trim() && !field.isSamePhoneCheckbox) {
+            console.log('Skipping empty checkbox value');
+            return;
+        }
+
+        if (field.element.checked !== shouldCheck) {
+            // A real click is the most reliable way to notify React, Angular,
+            // and other controlled-form frameworks about checkbox changes.
+            field.element.click();
+        } else {
+            dispatchFormEvents(field.element);
+        }
+
+        showFilledFeedback(field.element);
+        console.log(`✓ ${shouldCheck ? 'Checked' : 'Unchecked'}: "${field.label}"`);
+        return;
+    }
+
     // Skip if value is empty
     if (!value || value.trim() === '') {
         console.log(`Skipping empty value for field`);
@@ -837,7 +1080,7 @@ function fillField(field, value) {
             if (option.text.toLowerCase().includes(value.toLowerCase()) ||
                 option.value.toLowerCase().includes(value.toLowerCase()) ||
                 value.toLowerCase().includes(option.text.toLowerCase())) {
-                select.value = option.value;
+                setNativeProperty(select, 'value', option.value);
                 matched = true;
                 break;
             }
@@ -848,13 +1091,10 @@ function fillField(field, value) {
         }
 
         // Trigger events
-        select.dispatchEvent(new Event('input', { bubbles: true }));
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-        select.dispatchEvent(new Event('blur', { bubbles: true }));
+        dispatchFormEvents(select);
 
         // Visual feedback
-        select.style.backgroundColor = '#e8f5e9';
-        setTimeout(() => { select.style.backgroundColor = ''; }, 1000);
+        showFilledFeedback(select);
     } else if (field.type === 'select2-search') {
         // For Select2 search fields - we need to interact with Select2 properly
         const input = field.element;
@@ -910,7 +1150,7 @@ function fillField(field, value) {
         setTimeout(() => {
             // Focus and type into the search field
             input.focus();
-            input.value = value;
+            setNativeProperty(input, 'value', value);
 
             // Trigger input events
             input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -954,19 +1194,16 @@ function fillField(field, value) {
         if (element.type === 'number') {
             // Extract numbers from the value
             const numericValue = value.replace(/[^0-9.]/g, '');
-            element.value = numericValue;
+            setNativeProperty(element, 'value', numericValue);
         } else {
-            element.value = value;
+            setNativeProperty(element, 'value', value);
         }
 
         // Trigger events
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-        element.dispatchEvent(new Event('blur', { bubbles: true }));
+        dispatchFormEvents(element);
 
         // Visual feedback
-        element.style.backgroundColor = '#e8f5e9';
-        setTimeout(() => { element.style.backgroundColor = ''; }, 1000);
+        showFilledFeedback(element);
     }
 }
 
